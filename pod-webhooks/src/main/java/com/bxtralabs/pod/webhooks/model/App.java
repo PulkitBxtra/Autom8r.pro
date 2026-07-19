@@ -1,8 +1,10 @@
 package com.bxtralabs.pod.webhooks.model;
 
 import com.bxtralabs.pod.webhooks.common.IDs;
+import jakarta.persistence.CascadeType;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.PrePersist;
 
@@ -21,9 +23,11 @@ public class App {
     @Id
     public String id;
     public  String name;
-    @OneToMany(targetEntity = AppAction.class)
+    @OneToMany(cascade = CascadeType.ALL)
+    @JoinColumn(name = "app_id")
     public List<AppAction> actions;
-    @OneToMany(targetEntity = AppTrigger.class)
+    @OneToMany(cascade = CascadeType.ALL)
+    @JoinColumn(name = "app_id")
     public List<AppTrigger> triggers;
 
     public App() {
