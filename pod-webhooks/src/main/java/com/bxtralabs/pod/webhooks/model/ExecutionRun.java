@@ -1,10 +1,13 @@
 package com.bxtralabs.pod.webhooks.model;
 
 import com.bxtralabs.pod.webhooks.common.IDs;
+import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.OneToOne;
 import jakarta.persistence.PrePersist;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.util.Map;
 
@@ -18,17 +21,20 @@ public class ExecutionRun {
 
     @Id
     public String id;
+    public String workflowId;
     public String status;
     public Long startTimestamp;
     public Long endTimestamp;
-    public Object metadata;
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(columnDefinition = "jsonb")
+    public Map<String, Object> metadata;
     @OneToOne(targetEntity = ExecutionRunOutbox.class)
     public ExecutionRunOutbox executionRunOutbox;
 
     public ExecutionRun() {
     }
 
-    public ExecutionRun(String id, String status, Long startTimestamp, Long endTimestamp, Object metadata, ExecutionRunOutbox executionRunOutbox) {
+    public ExecutionRun(String id, String status, Long startTimestamp, Long endTimestamp, Map<String, Object> metadata, ExecutionRunOutbox executionRunOutbox) {
         this.id = id;
         this.status = status;
         this.startTimestamp = startTimestamp;
@@ -43,6 +49,14 @@ public class ExecutionRun {
 
     public void setId(String id) {
         this.id = id;
+    }
+
+    public String getWorkflowId() {
+        return workflowId;
+    }
+
+    public void setWorkflowId(String workflowId) {
+        this.workflowId = workflowId;
     }
 
     public String getStatus() {
@@ -69,11 +83,11 @@ public class ExecutionRun {
         this.endTimestamp = endTimestamp;
     }
 
-    public Object getMetadata() {
+    public Map<String, Object> getMetadata() {
         return metadata;
     }
 
-    public void setMetadata(Object metadata) {
+    public void setMetadata(Map<String, Object> metadata) {
         this.metadata = metadata;
     }
 

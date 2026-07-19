@@ -20,6 +20,9 @@ public class AppTrigger {
     private String name;
     private String appName;
 
+    public AppTrigger() {
+    }
+
     public AppTrigger(String id, String name, String appName) {
         this.id = id;
         this.name = name;
