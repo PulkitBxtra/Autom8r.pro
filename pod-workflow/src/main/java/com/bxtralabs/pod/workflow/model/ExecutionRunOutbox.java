@@ -1,20 +1,11 @@
 package com.bxtralabs.pod.webhooks.model;
 
-import com.bxtralabs.pod.webhooks.common.IDs;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.OneToOne;
-import jakarta.persistence.PrePersist;
 
 @Entity
 public class ExecutionRunOutbox {
-
-    @PrePersist
-    public void prePersist() {
-        if(id==null) {
-            id = IDs.generateID("ero");
-        }
-    }
 
     @Id
     public String id;
