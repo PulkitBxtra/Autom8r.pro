@@ -1,6 +1,6 @@
-package com.bxtralabs.pod.webhooks.model;
+package com.bxtralabs.pod.workflow.model;
 
-import com.bxtralabs.pod.webhooks.common.IDs;
+import com.bxtralabs.pod.workflow.common.IDs;
 import jakarta.persistence.*;
 
 @Entity
