@@ -1,11 +1,7 @@
-package com.bxtralabs.pod.webhooks.model;
+package com.bxtralabs.pod.workflow.model;
 
-import com.bxtralabs.pod.webhooks.common.IDs;
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.Id;
-import jakarta.persistence.OneToOne;
-import jakarta.persistence.PrePersist;
+import com.bxtralabs.pod.workflow.common.IDs;
+import jakarta.persistence.*;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 

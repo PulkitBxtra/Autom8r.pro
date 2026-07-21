@@ -1,4 +1,4 @@
-package com.bxtralabs.pod.webhooks.common;
+package com.bxtralabs.pod.workflow.common;
 
 import com.github.f4b6a3.ulid.UlidCreator;
 

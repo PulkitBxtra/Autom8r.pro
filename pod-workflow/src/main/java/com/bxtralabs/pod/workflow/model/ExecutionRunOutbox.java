@@ -1,4 +1,4 @@
-package com.bxtralabs.pod.webhooks.model;
+package com.bxtralabs.pod.workflow.model;
 
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;

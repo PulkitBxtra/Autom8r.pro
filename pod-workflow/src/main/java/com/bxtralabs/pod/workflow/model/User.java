@@ -1,9 +1,10 @@
-package com.bxtralabs.pod.webhooks.model;
+package com.bxtralabs.pod.workflow.model;
 
-import com.bxtralabs.pod.webhooks.common.IDs;
-import jakarta.persistence.*;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+import com.bxtralabs.pod.workflow.common.IDs;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.Id;
+import jakarta.persistence.PrePersist;
 
 @Entity
 public class User {
