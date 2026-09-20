@@ -21,6 +21,8 @@ public class Action {
     private  String name;
     private  String type;
     private  String appName;
+    // Position of this action within its trigger's execution plan; consumers sort by this at runtime.
+    private Integer sortingOrder;
 
     public Action() {
     }
@@ -30,6 +32,14 @@ public class Action {
         this.name = name;
         this.type = type;
         this.appName = appName;
+    }
+
+    public Action(String id, String name, String type, String appName, Integer sortingOrder) {
+        this.id = id;
+        this.name = name;
+        this.type = type;
+        this.appName = appName;
+        this.sortingOrder = sortingOrder;
     }
 
     public String getId() {
@@ -64,6 +74,14 @@ public class Action {
         this.appName = appName;
     }
 
+    public Integer getSortingOrder() {
+        return sortingOrder;
+    }
+
+    public void setSortingOrder(Integer sortingOrder) {
+        this.sortingOrder = sortingOrder;
+    }
+
     @Override
     public String toString() {
         return "Action{" +
@@ -71,6 +89,7 @@ public class Action {
                 ", name='" + name + '\'' +
                 ", type='" + type + '\'' +
                 ", appName='" + appName + '\'' +
+                ", sortingOrder=" + sortingOrder +
                 '}';
     }
 }

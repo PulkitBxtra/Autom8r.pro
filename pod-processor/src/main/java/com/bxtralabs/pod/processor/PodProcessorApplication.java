@@ -1,17 +1,15 @@
-package com.bxtralabs.pod.workflow;
+package com.bxtralabs.pod.processor;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.kafka.annotation.EnableKafka;
-import org.springframework.scheduling.annotation.EnableScheduling;
 
 @SpringBootApplication
 @EnableKafka
-@EnableScheduling
-public class PodWorkflowApplication {
+public class PodProcessorApplication {
 
     public static void main(String[] args) {
-        SpringApplication.run(PodWorkflowApplication.class, args);
+        SpringApplication.run(PodProcessorApplication.class, args);
     }
 
 }

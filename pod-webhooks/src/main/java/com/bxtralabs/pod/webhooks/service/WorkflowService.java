@@ -8,6 +8,7 @@ import com.bxtralabs.pod.webhooks.repository.ExecutionRunRepository;
 import com.bxtralabs.pod.webhooks.repository.WorkflowRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.HashMap;
@@ -30,6 +31,8 @@ public class WorkflowService {
     }
 
     // Triggered by the webhook: verify the workflow exists, then record an ExecutionRun.
+    // The run and its outbox row must commit together, or the outbox guarantee is worthless.
+    @Transactional
     public String triggerWorkflow(String workflowId, Object body) {
 
         Workflow workflow = workflowRepository.findById(workflowId)
