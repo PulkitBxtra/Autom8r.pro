@@ -5,8 +5,12 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.PrePersist;
+import jakarta.persistence.Table;
 
+// "user" is a reserved word in Postgres; unquoted DDL against it silently
+// fails under ddl-auto=update, so the table never actually gets created.
 @Entity
+@Table(name = "app_user")
 public class User {
 
     @PrePersist

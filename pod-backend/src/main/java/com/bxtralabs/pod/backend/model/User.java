@@ -1,9 +1,11 @@
-package com.bxtralabs.pod.webhooks.model;
+package com.bxtralabs.pod.backend.model;
 
-import com.bxtralabs.pod.webhooks.common.IDs;
-import jakarta.persistence.*;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+import com.bxtralabs.pod.backend.common.IDs;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.Id;
+import jakarta.persistence.PrePersist;
+import jakarta.persistence.Table;
 
 // "user" is a reserved word in Postgres; unquoted DDL against it silently
 // fails under ddl-auto=update, so the table never actually gets created.

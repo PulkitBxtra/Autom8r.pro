@@ -1,9 +1,14 @@
 package com.bxtralabs.pod.workflow.model;
 
 import com.bxtralabs.pod.workflow.common.IDs;
+import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.PrePersist;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
+
+import java.util.Map;
 
 @Entity
 public class Action {
@@ -23,6 +28,10 @@ public class Action {
     private  String appName;
     // Position of this action within its trigger's execution plan; consumers sort by this at runtime.
     private Integer sortingOrder;
+    // Per-instance config for this action, e.g. connection id, channel, message template.
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(columnDefinition = "jsonb")
+    private Map<String, Object> parameters;
 
     public Action() {
     }
@@ -40,6 +49,15 @@ public class Action {
         this.type = type;
         this.appName = appName;
         this.sortingOrder = sortingOrder;
+    }
+
+    public Action(String id, String name, String type, String appName, Integer sortingOrder, Map<String, Object> parameters) {
+        this.id = id;
+        this.name = name;
+        this.type = type;
+        this.appName = appName;
+        this.sortingOrder = sortingOrder;
+        this.parameters = parameters;
     }
 
     public String getId() {
@@ -82,6 +100,14 @@ public class Action {
         this.sortingOrder = sortingOrder;
     }
 
+    public Map<String, Object> getParameters() {
+        return parameters;
+    }
+
+    public void setParameters(Map<String, Object> parameters) {
+        this.parameters = parameters;
+    }
+
     @Override
     public String toString() {
         return "Action{" +
@@ -90,6 +116,7 @@ public class Action {
                 ", type='" + type + '\'' +
                 ", appName='" + appName + '\'' +
                 ", sortingOrder=" + sortingOrder +
+                ", parameters=" + parameters +
                 '}';
     }
 }

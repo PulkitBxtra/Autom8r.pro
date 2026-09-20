@@ -11,7 +11,7 @@ public class AppTrigger {
     @PrePersist
     public void prePersist() {
         if(id==null){
-            id = IDs.generateID("app");
+            id = IDs.generateID("atr");
         }
     }
 

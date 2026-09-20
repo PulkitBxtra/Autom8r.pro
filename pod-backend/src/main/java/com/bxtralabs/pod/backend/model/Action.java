@@ -1,6 +1,6 @@
-package com.bxtralabs.pod.webhooks.model;
+package com.bxtralabs.pod.backend.model;
 
-import com.bxtralabs.pod.webhooks.common.IDs;
+import com.bxtralabs.pod.backend.common.IDs;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;

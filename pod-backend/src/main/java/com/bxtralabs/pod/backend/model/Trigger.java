@@ -1,6 +1,6 @@
-package com.bxtralabs.pod.webhooks.model;
+package com.bxtralabs.pod.backend.model;
 
-import com.bxtralabs.pod.webhooks.common.IDs;
+import com.bxtralabs.pod.backend.common.IDs;
 import jakarta.persistence.*;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;

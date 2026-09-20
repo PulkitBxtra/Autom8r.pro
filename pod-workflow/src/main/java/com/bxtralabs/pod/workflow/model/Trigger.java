@@ -2,6 +2,10 @@ package com.bxtralabs.pod.workflow.model;
 
 import com.bxtralabs.pod.workflow.common.IDs;
 import jakarta.persistence.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
+
+import java.util.Map;
 
 @Entity
 public class Trigger {
@@ -20,6 +24,10 @@ public class Trigger {
     @JoinColumn(name = "app_trigger_id")
     private AppTrigger type;
     private String AppName;
+    // Per-instance config for this trigger, e.g. connection id, watched label/folder.
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(columnDefinition = "jsonb")
+    private Map<String, Object> parameters;
 
     public Trigger() {
     }
@@ -31,6 +39,14 @@ public class Trigger {
         this.name = name;
         this.type = type;
         AppName = appName;
+    }
+
+    public Trigger(String id, String name, AppTrigger type, String appName, Map<String, Object> parameters) {
+        this.id = id;
+        this.name = name;
+        this.type = type;
+        AppName = appName;
+        this.parameters = parameters;
     }
 
     public String getId() {
@@ -65,6 +81,14 @@ public class Trigger {
         AppName = appName;
     }
 
+    public Map<String, Object> getParameters() {
+        return parameters;
+    }
+
+    public void setParameters(Map<String, Object> parameters) {
+        this.parameters = parameters;
+    }
+
     @Override
     public String toString() {
         return "Trigger{" +
@@ -72,6 +96,7 @@ public class Trigger {
                 ", name='" + name + '\'' +
                 ", type='" + type + '\'' +
                 ", AppName='" + AppName + '\'' +
+                ", parameters=" + parameters +
                 '}';
     }
 }

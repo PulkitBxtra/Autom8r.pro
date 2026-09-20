@@ -1,6 +1,6 @@
-package com.bxtralabs.pod.workflow.model;
+package com.bxtralabs.pod.backend.model;
 
-import com.bxtralabs.pod.workflow.common.IDs;
+import com.bxtralabs.pod.backend.common.IDs;
 import jakarta.persistence.*;
 
 import java.util.List;

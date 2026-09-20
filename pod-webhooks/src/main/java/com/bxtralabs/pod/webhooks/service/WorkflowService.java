@@ -25,7 +25,8 @@ public class WorkflowService {
     @Autowired
     private ExecutionRunOutboxRepository executionRunOutboxRepository;
 
-    public String createWorkflow(Workflow workflow) {
+    public String createWorkflow(Workflow workflow, String userId) {
+        workflow.setUserId(userId);
         Workflow w = workflowRepository.save(workflow);
         return w.getId();
     }

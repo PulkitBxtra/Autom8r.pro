@@ -1,31 +1,33 @@
-package com.bxtralabs.pod.webhooks.model;
+package com.bxtralabs.pod.backend.model;
 
-import com.bxtralabs.pod.webhooks.common.IDs;
+import com.bxtralabs.pod.backend.common.IDs;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.PrePersist;
 
 @Entity
-public class AppTrigger {
+public class AppAction {
 
     @PrePersist
     public void prePersist() {
-        if(id==null){
-            id = IDs.generateID("atr");
+        if(id == null) {
+            id = IDs.generateID("aac");
         }
     }
 
     @Id
     private String id;
-    private String name;
-    private String appName;
+    private  String name;
+    private  String type;
+    private  String appName;
 
-    public AppTrigger() {
+    public AppAction() {
     }
 
-    public AppTrigger(String id, String name, String appName) {
+    public AppAction(String id, String name, String type, String appName) {
         this.id = id;
         this.name = name;
+        this.type = type;
         this.appName = appName;
     }
 
@@ -45,6 +47,14 @@ public class AppTrigger {
         this.name = name;
     }
 
+    public String getType() {
+        return type;
+    }
+
+    public void setType(String type) {
+        this.type = type;
+    }
+
     public String getAppName() {
         return appName;
     }
@@ -55,9 +65,10 @@ public class AppTrigger {
 
     @Override
     public String toString() {
-        return "AppTrigger{" +
+        return "AppAction{" +
                 "id='" + id + '\'' +
                 ", name='" + name + '\'' +
+                ", type='" + type + '\'' +
                 ", appName='" + appName + '\'' +
                 '}';
     }

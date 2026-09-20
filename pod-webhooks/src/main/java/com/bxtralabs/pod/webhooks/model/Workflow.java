@@ -11,7 +11,7 @@ public class Workflow {
     @PrePersist
     public void prePersist() {
         if(id==null) {
-            id = IDs.generateID("exc");
+            id = IDs.generateID("wfl");
         }
     }
 
@@ -19,6 +19,7 @@ public class Workflow {
     private String id;
     private String name;
     private String triggerId;
+    private String userId;
     @OneToMany
     @JoinColumn(name = "workflow_id")
     private List<Action> actions;
@@ -26,10 +27,11 @@ public class Workflow {
     public Workflow() {
     }
 
-    public Workflow(String id, String name, String triggerId, List<Action> actions) {
+    public Workflow(String id, String name, String triggerId, String userId, List<Action> actions) {
         this.id = id;
         this.name = name;
         this.triggerId = triggerId;
+        this.userId = userId;
         this.actions = actions;
     }
 
@@ -55,6 +57,14 @@ public class Workflow {
 
     public void setTriggerId(String triggerId) {
         this.triggerId = triggerId;
+    }
+
+    public String getUserId() {
+        return userId;
+    }
+
+    public void setUserId(String userId) {
+        this.userId = userId;
     }
 
     public List<Action> getActions() {
