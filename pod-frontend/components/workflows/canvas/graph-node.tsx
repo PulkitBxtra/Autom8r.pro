@@ -8,7 +8,8 @@ import type { WorkflowNode } from "@/lib/workflow-graph";
 import { useCanvasActions } from "./canvas-actions-context";
 
 export function GraphNode({ id, data, selected }: NodeProps<WorkflowNode>) {
-  const { interactive, onConfigure, onDelete } = useCanvasActions();
+  const { interactive, selectedNodeId, onConfigure, onDelete } = useCanvasActions();
+  const isOpenInPanel = id === selectedNodeId;
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const empty = !data.item;
@@ -36,13 +37,12 @@ export function GraphNode({ id, data, selected }: NodeProps<WorkflowNode>) {
       )}
 
       <button
-        onClick={interactive ? () => onConfigure(id) : undefined}
+        onClick={() => onConfigure(id)}
         className={cn(
           "flex w-full items-center gap-3 rounded-2xl border p-3.5 text-left shadow-lg shadow-black/40 transition-colors",
           empty ? "border-dashed border-border-strong bg-surface-raised" : "border-border-strong bg-surface-raised",
-          interactive && "hover:border-lemon/50",
-          !interactive && "cursor-default",
-          selected && "border-lemon"
+          "hover:border-lemon/50",
+          (selected || isOpenInPanel) && "border-lemon"
         )}
       >
         <div

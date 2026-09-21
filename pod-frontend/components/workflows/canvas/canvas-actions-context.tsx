@@ -4,6 +4,7 @@ import { createContext, useContext } from "react";
 
 type CanvasActions = {
   interactive: boolean;
+  selectedNodeId: string | null;
   onConfigure: (nodeId: string) => void;
   onDelete: (nodeId: string) => void;
   onQuickAdd: (parentId: string) => void;
@@ -12,6 +13,7 @@ type CanvasActions = {
 
 export const CanvasActionsContext = createContext<CanvasActions>({
   interactive: false,
+  selectedNodeId: null,
   onConfigure: () => {},
   onDelete: () => {},
   onQuickAdd: () => {},

@@ -9,9 +9,10 @@ import { Button } from "@/components/ui/button";
 import { FullPageSpinner } from "@/components/ui/spinner";
 import { EmptyState } from "@/components/ui/empty-state";
 import { WorkflowCanvas } from "@/components/workflows/canvas/workflow-canvas";
+import { StepPanel } from "@/components/workflows/canvas/step-panel";
 import { useAuth } from "@/lib/auth-context";
 import { getWorkflow, triggerWorkflow } from "@/lib/api/workflows";
-import { buildGraphFromWorkflow } from "@/lib/workflow-graph";
+import { buildGraphFromWorkflow, flattenGraph, TRIGGER_NODE_ID } from "@/lib/workflow-graph";
 import { ApiError } from "@/lib/api/client";
 import type { Workflow } from "@/lib/types";
 
@@ -27,6 +28,7 @@ export default function WorkflowDetailPage({
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const [runResult, setRunResult] = useState<string | null>(null);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!token) return;
@@ -46,6 +48,15 @@ export default function WorkflowDetailPage({
   );
   const [nodes, , onNodesChange] = useNodesState(graph.nodes);
   const [edges, , onEdgesChange] = useEdgesState(graph.edges);
+
+  const { orderedActionNodes } = flattenGraph(nodes, edges);
+  const stepNumbers = useMemo(() => {
+    const map = new Map<string, number>();
+    map.set(TRIGGER_NODE_ID, 1);
+    orderedActionNodes.forEach((n, i) => map.set(n.id, i + 2));
+    return map;
+  }, [orderedActionNodes]);
+  const selectedNode = nodes.find((n) => n.id === selectedNodeId);
 
   async function handleRun() {
     setRunning(true);
@@ -76,45 +87,59 @@ export default function WorkflowDetailPage({
 
       {!loading && workflow && (
         <div className="flex flex-1 flex-col overflow-hidden">
-          <div className="relative min-h-0 flex-[2]">
-            <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex items-start justify-between gap-4 p-5">
-              <div className="pointer-events-auto max-w-sm rounded-2xl border border-border-strong bg-surface-raised/90 p-4 shadow-xl backdrop-blur">
-                <Link
-                  href="/workflows"
-                  className="mb-2 inline-flex items-center gap-1.5 text-xs font-medium text-text-muted hover:text-text"
+          <div className="flex min-h-0 flex-[2]">
+            <div className="relative min-w-0 flex-1">
+              <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex items-start justify-between gap-4 p-5">
+                <div className="pointer-events-auto max-w-sm rounded-2xl border border-border-strong bg-surface-raised/90 p-4 shadow-xl backdrop-blur">
+                  <Link
+                    href="/workflows"
+                    className="mb-2 inline-flex items-center gap-1.5 text-xs font-medium text-text-muted hover:text-text"
+                  >
+                    <ArrowLeft className="size-3.5" />
+                    All workflows
+                  </Link>
+                  <h2 className="text-lg font-black">{workflow.name}</h2>
+                  <p className="mt-1 text-xs text-text-muted">
+                    {(workflow.actions?.length ?? 0) + 1} steps
+                  </p>
+                  {runResult && (
+                    <p className="mt-2 text-xs text-lemon">{runResult}</p>
+                  )}
+                </div>
+
+                <Button
+                  onClick={handleRun}
+                  loading={running}
+                  variant="secondary"
+                  className="pointer-events-auto"
                 >
-                  <ArrowLeft className="size-3.5" />
-                  All workflows
-                </Link>
-                <h2 className="text-lg font-black">{workflow.name}</h2>
-                <p className="mt-1 text-xs text-text-muted">
-                  {(workflow.actions?.length ?? 0) + 1} steps
-                </p>
-                {runResult && (
-                  <p className="mt-2 text-xs text-lemon">{runResult}</p>
-                )}
+                  <Play className="size-4" />
+                  Run now
+                </Button>
               </div>
 
-              <Button
-                onClick={handleRun}
-                loading={running}
-                variant="secondary"
-                className="pointer-events-auto"
-              >
-                <Play className="size-4" />
-                Run now
-              </Button>
+              <WorkflowCanvas
+                nodes={nodes}
+                edges={edges}
+                onNodesChange={onNodesChange}
+                onEdgesChange={onEdgesChange}
+                setNodes={() => {}}
+                setEdges={() => {}}
+                interactive={false}
+                selectedNodeId={selectedNodeId}
+                onSelectNode={setSelectedNodeId}
+              />
             </div>
 
-            <WorkflowCanvas
-              nodes={nodes}
-              edges={edges}
-              onNodesChange={onNodesChange}
-              onEdgesChange={onEdgesChange}
-              setNodes={() => {}}
-              setEdges={() => {}}
-              interactive={false}
-            />
+            {selectedNode && (
+              <StepPanel
+                key={selectedNode.id}
+                node={selectedNode}
+                stepNumber={stepNumbers.get(selectedNode.id) ?? 1}
+                readOnly
+                onClose={() => setSelectedNodeId(null)}
+              />
+            )}
           </div>
 
           <div className="flex-1 overflow-y-auto border-t border-border p-6">

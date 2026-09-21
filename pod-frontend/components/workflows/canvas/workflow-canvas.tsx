@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo } from "react";
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -20,7 +20,6 @@ import { GraphEdge } from "./graph-edge";
 import { PlaceholderNode as PlaceholderNodeComponent } from "./placeholder-node";
 import { PlaceholderEdge } from "./placeholder-edge";
 import { CanvasActionsContext } from "./canvas-actions-context";
-import { AppPickerDialog } from "@/components/workflows/app-picker-dialog";
 import {
   createActionNodeId,
   nextChildSlot,
@@ -34,14 +33,9 @@ import type {
   WorkflowEdge,
   WorkflowNode,
 } from "@/lib/workflow-graph";
-import type { App, AppAction, AppTrigger } from "@/lib/types";
 
 const NODE_TYPES = { workflowNode: GraphNode, placeholderNode: PlaceholderNodeComponent };
 const EDGE_TYPES = { workflowEdge: GraphEdge, placeholderEdge: PlaceholderEdge };
-
-type PickerState =
-  | { open: false }
-  | { open: true; nodeId: string; kind: "trigger" | "action" };
 
 export function WorkflowCanvas({
   nodes,
@@ -51,6 +45,8 @@ export function WorkflowCanvas({
   setNodes,
   setEdges,
   interactive,
+  selectedNodeId,
+  onSelectNode,
 }: {
   nodes: WorkflowNode[];
   edges: WorkflowEdge[];
@@ -59,9 +55,9 @@ export function WorkflowCanvas({
   setNodes: React.Dispatch<React.SetStateAction<WorkflowNode[]>>;
   setEdges: React.Dispatch<React.SetStateAction<WorkflowEdge[]>>;
   interactive: boolean;
+  selectedNodeId: string | null;
+  onSelectNode: (nodeId: string | null) => void;
 }) {
-  const [picker, setPicker] = useState<PickerState>({ open: false });
-
   const onConnect: OnConnect = useCallback(
     (connection: Connection) => {
       setEdges((eds) => addEdge({ ...connection, type: "workflowEdge" }, eds));
@@ -69,14 +65,13 @@ export function WorkflowCanvas({
     [setEdges]
   );
 
+  // Opening a step to view/edit it is never destructive, so this works the
+  // same whether the canvas is interactive or read-only.
   const onConfigure = useCallback(
     (nodeId: string) => {
-      if (!interactive) return;
-      const node = nodes.find((n) => n.id === nodeId);
-      if (!node) return;
-      setPicker({ open: true, nodeId, kind: node.data.kind });
+      onSelectNode(nodeId);
     },
-    [interactive, nodes]
+    [onSelectNode]
   );
 
   const onDelete = useCallback(
@@ -85,8 +80,9 @@ export function WorkflowCanvas({
       if (id === TRIGGER_NODE_ID) return;
       setNodes((nds) => nds.filter((n) => n.id !== id));
       setEdges((eds) => eds.filter((e) => e.id !== id && e.source !== id && e.target !== id));
+      if (id === selectedNodeId) onSelectNode(null);
     },
-    [interactive, setNodes, setEdges]
+    [interactive, setNodes, setEdges, selectedNodeId, onSelectNode]
   );
 
   const onQuickAdd = useCallback(
@@ -111,9 +107,9 @@ export function WorkflowCanvas({
 
       setNodes((nds) => [...nds, newNode]);
       setEdges((eds) => [...eds, newEdge]);
-      setPicker({ open: true, nodeId: newId, kind: "action" });
+      onSelectNode(newId);
     },
-    [interactive, nodes, edges, setNodes, setEdges]
+    [interactive, nodes, edges, setNodes, setEdges, onSelectNode]
   );
 
   // Splits an existing connection in two around a freshly created node,
@@ -144,19 +140,10 @@ export function WorkflowCanvas({
         { id: `edge-${edge.source}-${newId}`, source: edge.source, target: newId, type: "workflowEdge" },
         { id: `edge-${newId}-${edge.target}`, source: newId, target: edge.target, type: "workflowEdge" },
       ]);
-      setPicker({ open: true, nodeId: newId, kind: "action" });
+      onSelectNode(newId);
     },
-    [interactive, edges, nodes, setNodes, setEdges]
+    [interactive, edges, nodes, setNodes, setEdges, onSelectNode]
   );
-
-  function handleSelect(app: App, item: AppTrigger | AppAction) {
-    if (!picker.open) return;
-    setNodes((nds) =>
-      nds.map((n) =>
-        n.id === picker.nodeId ? { ...n, data: { ...n.data, app, item } } : n
-      )
-    );
-  }
 
   // A dangling "add a step" affordance, shown only on true leaf nodes (no
   // outgoing edge yet) -- a node that already has a child stays a plain,
@@ -218,13 +205,13 @@ export function WorkflowCanvas({
   );
 
   const actions = useMemo(
-    () => ({ interactive, onConfigure, onDelete, onQuickAdd, onInsertNode }),
-    [interactive, onConfigure, onDelete, onQuickAdd, onInsertNode]
+    () => ({ interactive, selectedNodeId, onConfigure, onDelete, onQuickAdd, onInsertNode }),
+    [interactive, selectedNodeId, onConfigure, onDelete, onQuickAdd, onInsertNode]
   );
 
-  // Memoized so unrelated re-renders (e.g. the picker dialog opening) don't
-  // hand ReactFlow a brand-new array reference and trigger it to redo
-  // internal measurement/layout work every time.
+  // Memoized so unrelated re-renders (e.g. the panel opening) don't hand
+  // ReactFlow a brand-new array reference and trigger it to redo internal
+  // measurement/layout work every time.
   const canvasNodes: CanvasNode[] = useMemo(
     () => [...nodes, ...placeholders.nodes],
     [nodes, placeholders.nodes]
@@ -268,15 +255,6 @@ export function WorkflowCanvas({
           </ReactFlow>
         </div>
       </ReactFlowProvider>
-
-      {interactive && (
-        <AppPickerDialog
-          open={picker.open}
-          onClose={() => setPicker({ open: false })}
-          kind={picker.open ? picker.kind : "action"}
-          onSelect={handleSelect}
-        />
-      )}
     </CanvasActionsContext.Provider>
   );
 }
