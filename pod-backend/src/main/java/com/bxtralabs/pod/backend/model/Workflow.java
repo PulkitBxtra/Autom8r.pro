@@ -20,6 +20,8 @@ public class Workflow {
     private String name;
     private String triggerId;
     private String userId;
+    // Latest WorkflowVersion; new runs execute this graph.
+    private String currentVersionId;
     @OneToMany
     @JoinColumn(name = "workflow_id")
     private List<Action> actions;
@@ -65,6 +67,14 @@ public class Workflow {
 
     public void setUserId(String userId) {
         this.userId = userId;
+    }
+
+    public String getCurrentVersionId() {
+        return currentVersionId;
+    }
+
+    public void setCurrentVersionId(String currentVersionId) {
+        this.currentVersionId = currentVersionId;
     }
 
     public List<Action> getActions() {
