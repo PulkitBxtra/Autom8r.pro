@@ -39,8 +39,14 @@ public class WorkflowService {
         Workflow workflow = workflowRepository.findById(workflowId)
                 .orElseThrow(() -> new IllegalArgumentException("Workflow not found: " + workflowId));
 
+        // Workflows saved before versioning have no graph for the engine to run.
+        if (workflow.getCurrentVersionId() == null) {
+            throw new IllegalArgumentException("Workflow " + workflowId + " has no saved graph yet; open it and save it again");
+        }
+
         ExecutionRun executionRun = new ExecutionRun();
         executionRun.setWorkflowId(workflow.getId());
+        executionRun.setWorkflowVersionId(workflow.getCurrentVersionId());
         executionRun.setStatus("PENDING");
         executionRun.setStartTimestamp(Instant.now().toEpochMilli());
 

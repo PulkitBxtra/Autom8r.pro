@@ -20,6 +20,8 @@ public class Workflow {
     private String name;
     private String triggerId;
     private String userId;
+    // Owned by pod-backend; read here to pin each run to the graph that was live when it triggered.
+    private String currentVersionId;
     @OneToMany
     @JoinColumn(name = "workflow_id")
     private List<Action> actions;
@@ -65,6 +67,14 @@ public class Workflow {
 
     public void setUserId(String userId) {
         this.userId = userId;
+    }
+
+    public String getCurrentVersionId() {
+        return currentVersionId;
+    }
+
+    public void setCurrentVersionId(String currentVersionId) {
+        this.currentVersionId = currentVersionId;
     }
 
     public List<Action> getActions() {

@@ -12,6 +12,8 @@ public class ExecutionRun {
     @Id
     public String id;
     public String workflowId;
+    // The WorkflowVersion this run executes, fixed at trigger time so later edits don't affect it.
+    public String workflowVersionId;
     public String status;
     public Long startTimestamp;
     public Long endTimestamp;
@@ -45,6 +47,14 @@ public class ExecutionRun {
 
     public void setWorkflowId(String workflowId) {
         this.workflowId = workflowId;
+    }
+
+    public String getWorkflowVersionId() {
+        return workflowVersionId;
+    }
+
+    public void setWorkflowVersionId(String workflowVersionId) {
+        this.workflowVersionId = workflowVersionId;
     }
 
     public String getStatus() {
