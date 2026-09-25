@@ -12,7 +12,9 @@ public class ExecutionRun {
 
     @PrePersist
     public void prePersist() {
-        id = IDs.generateID("exn");
+        if(id==null) {
+            id = IDs.generateID("exn");
+        }
     }
 
     @Id

@@ -8,7 +8,7 @@ import java.util.ArrayList;
 public interface RunOutboxRepository extends JpaRepository<ExecutionRunOutbox, String> {
 
 //    ArrayList<ExecutionRunOutbox> findTen();
-    ArrayList<ExecutionRunOutbox> findFirst10ByOrderByIdAsc();
+    ArrayList<ExecutionRunOutbox> findFirst100ByOrderByIdAsc();
 
 
 }

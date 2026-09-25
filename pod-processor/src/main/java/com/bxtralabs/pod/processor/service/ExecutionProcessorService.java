@@ -25,13 +25,6 @@ public class ExecutionProcessorService {
             return;
         }
 
-        try{
-            Thread.sleep(2);
-        }
-        catch (InterruptedException e) {
-            e.printStackTrace();
-        }
-
         System.out.println("Processing execution: " + executionRun);
         // TODO: load the workflow's actions in sortingOrder and run them, then update status/endTimestamp.
 
