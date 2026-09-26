@@ -1,11 +1,20 @@
 import type { Edge, Node } from "@xyflow/react";
-import type { App, AppAction, AppTrigger, Workflow } from "@/lib/types";
-import { findAppTrigger } from "@/lib/mock-catalog";
+import type {
+  App,
+  AppAction,
+  AppTrigger,
+  GraphNode,
+  Workflow,
+  WorkflowGraph,
+} from "@/lib/types";
+import { findAppAction, findAppTrigger } from "@/lib/mock-catalog";
 
 export type GraphNodeData = {
   kind: "trigger" | "action";
   app?: App;
   item?: AppTrigger | AppAction;
+  // Carried through untouched so a load -> save round-trip never drops config.
+  parameters?: Record<string, unknown>;
 };
 
 export type WorkflowNode = Node<GraphNodeData, "workflowNode">;
@@ -50,23 +59,15 @@ export function buildInitialGraph(): { nodes: WorkflowNode[]; edges: WorkflowEdg
   };
 }
 
-// Backend today only accepts a flat, ordered action list (Workflow.actions +
-// Action.sortingOrder) -- no edges. This walks the graph breadth-first from
-// the trigger to produce that order, and flags when the graph actually has
-// branching/merging so the caller can warn the user it'll be flattened.
-export function flattenGraph(nodes: WorkflowNode[], edges: WorkflowEdge[]) {
+// Breadth-first order from the trigger, used only to number steps in the UI
+// ("Step 3"). Execution order comes from the graph's edges, not from this.
+export function orderSteps(nodes: WorkflowNode[], edges: WorkflowEdge[]) {
   const trigger = nodes.find((n) => n.id === TRIGGER_NODE_ID);
   const outEdges = new Map<string, string[]>();
-  const inDegree = new Map<string, number>();
 
   for (const edge of edges) {
     outEdges.set(edge.source, [...(outEdges.get(edge.source) ?? []), edge.target]);
-    inDegree.set(edge.target, (inDegree.get(edge.target) ?? 0) + 1);
   }
-
-  const hasBranching =
-    [...outEdges.values()].some((targets) => targets.length > 1) ||
-    [...inDegree.values()].some((count) => count > 1);
 
   const visited = new Set<string>();
   const orderedIds: string[] = [];
@@ -85,13 +86,129 @@ export function flattenGraph(nodes: WorkflowNode[], edges: WorkflowEdge[]) {
     .map((id) => byId.get(id))
     .filter((n): n is WorkflowNode => !!n && n.data.kind === "action");
 
-  return { trigger, orderedActionNodes, hasBranching };
+  return { trigger, orderedActionNodes };
 }
 
-// The backend only stores a flat, ordered action list -- so a workflow
-// loaded from the API always renders as a straight chain today. Once
-// pod-webhooks persists edges, this can read real branches instead.
+function isConfigured(node: WorkflowNode) {
+  return !!node.data.app && !!node.data.item;
+}
+
+// Converts the canvas into the graph pod-backend stores. Steps added with +
+// but never given an app are dropped when nothing hangs off them (there's no
+// delete in the UI yet, so one stray click shouldn't block saving). An
+// unconfigured step in the middle of a path can't be dropped without
+// breaking it, so that returns an error naming the step instead.
+export function toWorkflowGraph(
+  nodes: WorkflowNode[],
+  edges: WorkflowEdge[]
+): { graph: WorkflowGraph } | { error: string; nodeId: string } {
+  let keptNodes = [...nodes];
+  let keptEdges = [...edges];
+
+  // Repeat, since dropping an empty leaf can leave its empty parent as a new leaf.
+  for (;;) {
+    const hasChildren = new Set(keptEdges.map((e) => e.source));
+    const dropIds = new Set(
+      keptNodes
+        .filter((n) => n.data.kind === "action" && !isConfigured(n) && !hasChildren.has(n.id))
+        .map((n) => n.id)
+    );
+    if (dropIds.size === 0) break;
+    keptNodes = keptNodes.filter((n) => !dropIds.has(n.id));
+    keptEdges = keptEdges.filter((e) => !dropIds.has(e.source) && !dropIds.has(e.target));
+  }
+
+  const unconfigured = keptNodes.find((n) => !isConfigured(n));
+  if (unconfigured) {
+    return {
+      nodeId: unconfigured.id,
+      error:
+        unconfigured.data.kind === "trigger"
+          ? "Choose a trigger before saving"
+          : "A step in the middle of this workflow has no app selected",
+    };
+  }
+
+  return {
+    graph: {
+      nodes: keptNodes.map(
+        (n): GraphNode => ({
+          id: n.id,
+          kind: n.data.kind,
+          appName: n.data.app!.name,
+          itemId: n.data.item!.id,
+          name: n.data.item!.name,
+          type: "type" in n.data.item! ? n.data.item.type : null,
+          parameters: n.data.parameters ?? {},
+          position: { x: n.position.x, y: n.position.y },
+        })
+      ),
+      edges: keptEdges.map((e) => ({
+        from: e.source,
+        to: e.target,
+        condition: (e.data?.condition as string | undefined) ?? null,
+      })),
+    },
+  };
+}
+
+// Catalog lookup with a fallback built from what the graph stored, so a step
+// whose app later disappears from the catalog still renders with its name.
+function resolveNodeItem(node: GraphNode): { app: App; item: AppTrigger | AppAction } {
+  const fallbackApp: App = { id: node.appName, name: node.appName, actions: [], triggers: [] };
+
+  if (node.kind === "trigger") {
+    const found = findAppTrigger(node.itemId);
+    return found
+      ? { app: found.app, item: found.trigger }
+      : { app: fallbackApp, item: { id: node.itemId, name: node.name ?? node.itemId, appName: node.appName } };
+  }
+
+  const found = findAppAction(node.itemId);
+  return found
+    ? { app: found.app, item: found.action }
+    : {
+        app: fallbackApp,
+        item: { id: node.itemId, name: node.name ?? node.itemId, type: node.type ?? "action", appName: node.appName },
+      };
+}
+
+// Workflows saved since versioning carry their real graph (branches, joins,
+// layout). Older ones only have the flat legacy action list, which renders as
+// a straight chain.
 export function buildGraphFromWorkflow(workflow: Workflow): {
+  nodes: WorkflowNode[];
+  edges: WorkflowEdge[];
+} {
+  if (workflow.graph) {
+    return {
+      nodes: workflow.graph.nodes.map((n, i) => ({
+        id: n.id,
+        type: "workflowNode",
+        position: n.position ?? { x: 0, y: i * CHILD_Y_SPACING },
+        data: { kind: n.kind, ...resolveNodeItem(n), parameters: n.parameters ?? {} },
+      })),
+      edges: workflow.graph.edges.map((e) => ({
+        id: `edge-${e.from}-${e.to}`,
+        source: e.from,
+        target: e.to,
+        type: "workflowEdge",
+        ...(e.condition ? { data: { condition: e.condition } } : {}),
+      })),
+    };
+  }
+
+  return buildLegacyGraph(workflow);
+}
+
+export function countActions(workflow: Workflow) {
+  if (workflow.graph) {
+    return workflow.graph.nodes.filter((n) => n.kind === "action").length;
+  }
+  return workflow.actions?.length ?? 0;
+}
+
+function buildLegacyGraph(workflow: Workflow): {
   nodes: WorkflowNode[];
   edges: WorkflowEdge[];
 } {

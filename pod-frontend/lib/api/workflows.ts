@@ -1,5 +1,5 @@
 import { backend, webhooks } from "./client";
-import type { Action, Workflow } from "@/lib/types";
+import type { Workflow, WorkflowGraph } from "@/lib/types";
 
 export function listWorkflows(token: string) {
   return backend.get<Workflow[]>("/workflows", token);
@@ -9,18 +9,15 @@ export function getWorkflow(id: string, token: string) {
   return backend.get<Workflow>(`/workflow/${id}`, token);
 }
 
-export type ActionInput = Omit<Action, "id">;
-
 export type CreateWorkflowInput = {
   name: string;
-  triggerId: string;
-  actions: ActionInput[];
+  graph: WorkflowGraph;
 };
 
-// Workflow creation is owned by pod-webhooks -- it's what establishes
-// ownership via the caller's JWT -- not pod-backend, which is read-only here.
+// pod-backend validates the graph (single trigger, no cycles, every step
+// connected) and stores it as version 1; a 400 carries a user-facing reason.
 export function createWorkflow(input: CreateWorkflowInput, token: string) {
-  return webhooks.post<string>("/create/workflow", input, token);
+  return backend.post<Workflow>("/workflows", input, token);
 }
 
 export function triggerWorkflow(workflowId: string, payload: unknown = {}) {

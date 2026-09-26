@@ -27,12 +27,41 @@ export type Action = {
   parameters?: Record<string, unknown>;
 };
 
+// Mirrors pod-backend's WorkflowGraph: the DAG saved as one immutable version per save.
+export type GraphNode = {
+  id: string;
+  kind: "trigger" | "action";
+  appName: string;
+  // Catalog AppTrigger/AppAction id.
+  itemId: string;
+  name?: string | null;
+  type?: string | null;
+  parameters?: Record<string, unknown> | null;
+  position?: { x: number; y: number } | null;
+};
+
+export type GraphEdge = {
+  from: string;
+  to: string;
+  // Not evaluated by the engine yet; null means always taken.
+  condition?: string | null;
+};
+
+export type WorkflowGraph = {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+};
+
 export type Workflow = {
   id: string;
   name: string;
   triggerId: string;
   userId: string;
-  actions: Action[];
+  currentVersionId?: string | null;
+  version?: number | null;
+  // Null for workflows saved before versioning; those only have the legacy actions list.
+  graph?: WorkflowGraph | null;
+  actions?: Action[] | null;
 };
 
 export type ExecutionRun = {

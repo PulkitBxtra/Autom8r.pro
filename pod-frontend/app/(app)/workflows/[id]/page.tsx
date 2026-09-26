@@ -12,7 +12,12 @@ import { WorkflowCanvas } from "@/components/workflows/canvas/workflow-canvas";
 import { StepPanel } from "@/components/workflows/canvas/step-panel";
 import { useAuth } from "@/lib/auth-context";
 import { getWorkflow, triggerWorkflow } from "@/lib/api/workflows";
-import { buildGraphFromWorkflow, flattenGraph, TRIGGER_NODE_ID } from "@/lib/workflow-graph";
+import {
+  buildGraphFromWorkflow,
+  countActions,
+  orderSteps,
+  TRIGGER_NODE_ID,
+} from "@/lib/workflow-graph";
 import { ApiError } from "@/lib/api/client";
 import type { Workflow } from "@/lib/types";
 
@@ -46,10 +51,17 @@ export default function WorkflowDetailPage({
     () => (workflow ? buildGraphFromWorkflow(workflow) : { nodes: [], edges: [] }),
     [workflow]
   );
-  const [nodes, , onNodesChange] = useNodesState(graph.nodes);
-  const [edges, , onEdgesChange] = useEdgesState(graph.edges);
+  const [nodes, setNodes, onNodesChange] = useNodesState(graph.nodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(graph.edges);
 
-  const { orderedActionNodes } = flattenGraph(nodes, edges);
+  // useNodesState only reads its argument on the first render, before the
+  // workflow has loaded -- push the graph in once it arrives.
+  useEffect(() => {
+    setNodes(graph.nodes);
+    setEdges(graph.edges);
+  }, [graph, setNodes, setEdges]);
+
+  const { orderedActionNodes } = orderSteps(nodes, edges);
   const stepNumbers = useMemo(() => {
     const map = new Map<string, number>();
     map.set(TRIGGER_NODE_ID, 1);
@@ -100,7 +112,7 @@ export default function WorkflowDetailPage({
                   </Link>
                   <h2 className="text-lg font-black">{workflow.name}</h2>
                   <p className="mt-1 text-xs text-text-muted">
-                    {(workflow.actions?.length ?? 0) + 1} steps
+                    {countActions(workflow) + 1} steps
                   </p>
                   {runResult && (
                     <p className="mt-2 text-xs text-lemon">{runResult}</p>

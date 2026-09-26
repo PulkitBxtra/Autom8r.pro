@@ -25,12 +25,6 @@ public class WorkflowService {
     @Autowired
     private ExecutionRunOutboxRepository executionRunOutboxRepository;
 
-    public String createWorkflow(Workflow workflow, String userId) {
-        workflow.setUserId(userId);
-        Workflow w = workflowRepository.save(workflow);
-        return w.getId();
-    }
-
     // Triggered by the webhook: verify the workflow exists, then record an ExecutionRun.
     // The run and its outbox row must commit together, or the outbox guarantee is worthless.
     @Transactional

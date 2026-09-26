@@ -3,7 +3,6 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useNodesState, useEdgesState } from "@xyflow/react";
-import { AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { WorkflowCanvas } from "@/components/workflows/canvas/workflow-canvas";
@@ -13,7 +12,8 @@ import { createWorkflow } from "@/lib/api/workflows";
 import { ApiError } from "@/lib/api/client";
 import {
   buildInitialGraph,
-  flattenGraph,
+  orderSteps,
+  toWorkflowGraph,
   TRIGGER_NODE_ID,
 } from "@/lib/workflow-graph";
 import type { App, AppAction, AppTrigger } from "@/lib/types";
@@ -30,7 +30,7 @@ export function WorkflowBuilder() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const { trigger, orderedActionNodes, hasBranching } = flattenGraph(nodes, edges);
+  const { trigger, orderedActionNodes } = orderSteps(nodes, edges);
   const canSave = !!trigger?.data.item;
 
   const stepNumbers = useMemo(() => {
@@ -52,26 +52,20 @@ export function WorkflowBuilder() {
 
   async function handleSave() {
     if (!token || !trigger?.data.item) return;
-    setSaving(true);
     setError(null);
+
+    const result = toWorkflowGraph(nodes, edges);
+    if ("error" in result) {
+      setError(result.error);
+      // Open the offending step so the user can fix it straight away.
+      setSelectedNodeId(result.nodeId);
+      return;
+    }
+
+    setSaving(true);
     try {
-      const id = await createWorkflow(
-        {
-          name,
-          triggerId: trigger.data.item.id,
-          actions: orderedActionNodes
-            .filter((n) => n.data.item && n.data.app)
-            .map((n, i) => ({
-              name: n.data.item!.name,
-              type: "action",
-              appName: n.data.app!.name,
-              sortingOrder: i,
-              parameters: {},
-            })),
-        },
-        token
-      );
-      router.push(`/workflows/${id}`);
+      const workflow = await createWorkflow({ name, graph: result.graph }, token);
+      router.push(`/workflows/${workflow.id}`);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Failed to save workflow");
     } finally {
@@ -93,13 +87,6 @@ export function WorkflowBuilder() {
             <p className="mt-1 text-xs text-text-muted">
               Click the trigger to start, then use + to chain or branch actions.
             </p>
-            {hasBranching && (
-              <p className="mt-2 flex items-center gap-1.5 text-xs text-amber-400">
-                <AlertTriangle className="size-3.5 shrink-0" />
-                Branches save in a flattened order until multi-path workflows
-                are supported.
-              </p>
-            )}
             {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
           </div>
 

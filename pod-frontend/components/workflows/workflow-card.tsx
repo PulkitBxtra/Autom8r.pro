@@ -3,11 +3,12 @@ import { ArrowRight, Zap } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { findAppTrigger } from "@/lib/mock-catalog";
+import { countActions } from "@/lib/workflow-graph";
 import type { Workflow } from "@/lib/types";
 
 export function WorkflowCard({ workflow }: { workflow: Workflow }) {
   const trigger = findAppTrigger(workflow.triggerId);
-  const actionCount = workflow.actions?.length ?? 0;
+  const actionCount = countActions(workflow);
 
   return (
     <Link href={`/workflows/${workflow.id}`}>

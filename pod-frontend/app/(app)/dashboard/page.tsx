@@ -10,14 +10,12 @@ import { WorkflowCard } from "@/components/workflows/workflow-card";
 import { useAuth } from "@/lib/auth-context";
 import { useWorkflows } from "@/hooks/use-workflows";
 import { APP_CATALOG } from "@/lib/mock-catalog";
+import { countActions } from "@/lib/workflow-graph";
 
 export default function DashboardPage() {
   const { user } = useAuth();
   const { workflows, loading } = useWorkflows();
-  const totalActions = workflows.reduce(
-    (sum, w) => sum + (w.actions?.length ?? 0),
-    0
-  );
+  const totalActions = workflows.reduce((sum, w) => sum + countActions(w), 0);
 
   return (
     <>

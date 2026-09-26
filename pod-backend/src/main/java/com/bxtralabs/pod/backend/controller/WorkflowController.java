@@ -30,10 +30,12 @@ public class WorkflowController {
         this.workflowService = workflowService;
     }
 
+    // Includes each workflow's current graph so list views can show step counts.
+    // One version lookup per workflow; fine at today's list sizes, batch it if lists grow large.
     @GetMapping("/workflows")
-    public List<Workflow> listWorkflows(@RequestHeader("Authorization") String authorizationHeader) {
+    public List<WorkflowResponse> listWorkflows(@RequestHeader("Authorization") String authorizationHeader) {
         String userId = authService.requireUserId(authorizationHeader);
-        return workflowService.listForUser(userId);
+        return workflowService.listForUser(userId).stream().map(this::toResponse).toList();
     }
 
     @GetMapping("/workflow/{id}")
