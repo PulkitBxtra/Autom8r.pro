@@ -138,13 +138,13 @@ class OrchestratorTest {
         StepRun s = step(nodeId);
         assertEquals(StepStatus.READY, s.getStatus(), nodeId + " should be READY before it runs");
         s.setStatus(StepStatus.RUNNING);
-        orchestrator.completeStep("exn_1", s.getId(), output, null);
+        orchestrator.completeStep("exn_1", s.getId(), null, output, null);
     }
 
     private void failStep(String nodeId, String error) {
         StepRun s = step(nodeId);
         s.setStatus(StepStatus.RUNNING);
-        orchestrator.completeStep("exn_1", s.getId(), null, error);
+        orchestrator.completeStep("exn_1", s.getId(), null, null, error);
     }
 
     // ---------- starting a run ----------
@@ -330,7 +330,7 @@ class OrchestratorTest {
         assertEquals(StepStatus.RUNNING, status("b"), "running steps aren't interrupted");
 
         dispatched.clear();
-        orchestrator.completeStep("exn_1", step("b").getId(), Map.of("late", true), null);
+        orchestrator.completeStep("exn_1", step("b").getId(), null, Map.of("late", true), null);
 
         assertEquals(StepStatus.SUCCEEDED, status("b"));
         assertEquals(StepStatus.CANCELLED, status("c"));
@@ -346,7 +346,7 @@ class OrchestratorTest {
         orchestrator.onRunStarted("exn_1");
         runStep("a", Map.of("first", true));
 
-        orchestrator.completeStep("exn_1", step("a").getId(), Map.of("second", true), null);
+        orchestrator.completeStep("exn_1", step("a").getId(), null, Map.of("second", true), null);
 
         assertEquals(Map.of("first", true), step("a").getOutput());
         assertEquals(1, step("c").getPendingDeps(), "c must only be decremented once for a");
@@ -357,9 +357,24 @@ class OrchestratorTest {
         givenRun(DIAMOND);
         orchestrator.onRunStarted("exn_1");
 
-        orchestrator.completeStep("exn_1", step("a").getId(), Map.of(), null); // a is READY, not RUNNING
+        orchestrator.completeStep("exn_1", step("a").getId(), null, Map.of(), null); // a is READY, not RUNNING
 
         assertEquals(StepStatus.READY, status("a"));
         assertEquals(2, step("c").getPendingDeps());
+    }
+
+    @Test
+    void resolvedInputIsRecordedOnSuccessAndFailure() throws Exception {
+        givenRun(DIAMOND);
+        orchestrator.onRunStarted("exn_1");
+
+        step("a").setStatus(StepStatus.RUNNING);
+        orchestrator.completeStep("exn_1", step("a").getId(), Map.of("to", "x@y.z"), Map.of("ok", true), null);
+        assertEquals(Map.of("to", "x@y.z"), step("a").getInput());
+
+        step("b").setStatus(StepStatus.RUNNING);
+        orchestrator.completeStep("exn_1", step("b").getId(), Map.of("url", "http://bad"), null, "HTTP 500");
+        assertEquals(Map.of("url", "http://bad"), step("b").getInput());
+        assertEquals("HTTP 500", step("b").getError());
     }
 }

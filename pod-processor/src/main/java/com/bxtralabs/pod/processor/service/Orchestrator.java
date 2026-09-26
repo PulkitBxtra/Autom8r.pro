@@ -10,6 +10,7 @@ import com.bxtralabs.pod.processor.model.graph.WorkflowGraph;
 import com.bxtralabs.pod.processor.repository.ExecutionRunRepository;
 import com.bxtralabs.pod.processor.repository.StepRunRepository;
 import com.bxtralabs.pod.processor.repository.WorkflowVersionRepository;
+import com.bxtralabs.pod.processor.service.template.TemplateResolver;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
@@ -105,10 +106,12 @@ public class Orchestrator {
     }
 
     // Records the result of a step that was RUNNING and advances the run.
+    // input is what the step ran with (templates resolved), kept for debugging and the UI.
     // error == null means success. Repeated or late calls are harmless: a step that isn't
     // RUNNING is ignored, and a run that already ended only records the step's result.
     @Transactional
-    public void completeStep(String runId, String stepRunId, Map<String, Object> output, String error) {
+    public void completeStep(String runId, String stepRunId, Map<String, Object> input,
+                             Map<String, Object> output, String error) {
         ExecutionRun run = executionRunRepository.findByIdForUpdate(runId).orElse(null);
         if (run == null) {
             return;
@@ -128,6 +131,7 @@ public class Orchestrator {
         }
 
         step.setEndedAt(System.currentTimeMillis());
+        step.setInput(input);
         if (error != null) {
             step.setStatus(StepStatus.FAILED);
             step.setError(error);
@@ -169,6 +173,8 @@ public class Orchestrator {
         long now = System.currentTimeMillis();
         List<StepRun> ready = new ArrayList<>();
         Deque<StepRun> queue = new ArrayDeque<>(List.of(finished));
+        // Conditions read outputs of steps that already succeeded, which don't change below.
+        Map<String, Object> context = TemplateResolver.context(graph, steps.values());
 
         while (!queue.isEmpty()) {
             StepRun done = queue.poll();
@@ -180,7 +186,7 @@ public class Orchestrator {
                     continue;
                 }
                 child.setPendingDeps(child.getPendingDeps() - 1);
-                if (doneRan && conditionEvaluator.isTaken(edge, steps)) {
+                if (doneRan && conditionEvaluator.isTaken(edge, context)) {
                     child.setActiveParents(child.getActiveParents() + 1);
                 }
                 if (child.getPendingDeps() == 0) {
