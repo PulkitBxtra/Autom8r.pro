@@ -64,13 +64,52 @@ export type Workflow = {
   actions?: Action[] | null;
 };
 
-export type ExecutionRun = {
+// A run is PENDING until pod-processor picks it up, RUNNING while its steps
+// execute, then SUCCEEDED or FAILED.
+export type RunStatus = "PENDING" | "RUNNING" | "SUCCEEDED" | "FAILED";
+
+export type StepStatus =
+  | "PENDING"
+  | "READY"
+  | "RUNNING"
+  | "RETRY_WAIT"
+  | "SUCCEEDED"
+  | "FAILED"
+  | "SKIPPED"
+  | "CANCELLED";
+
+// Mirrors pod-backend's RunService.RunSummary.
+export type RunSummary = {
   id: string;
   workflowId: string;
-  status: "PENDING" | "RUNNING" | "SUCCESS" | "FAILED" | string;
-  startTimestamp: number;
+  workflowVersionId: string | null;
+  version: number | null;
+  status: RunStatus;
+  startTimestamp: number | null;
   endTimestamp: number | null;
-  metadata?: Record<string, unknown>;
+  error: string | null;
+};
+
+export type StepDetail = {
+  id: string;
+  nodeId: string;
+  status: StepStatus;
+  attempt: number;
+  input: Record<string, unknown> | null;
+  output: Record<string, unknown> | null;
+  error: string | null;
+  startedAt: number | null;
+  endedAt: number | null;
+  nextAttemptAt: number | null;
+};
+
+// graph is the version this run executed, which may be older than the
+// workflow's current graph.
+export type RunDetail = {
+  run: RunSummary;
+  triggerBody: unknown;
+  graph: WorkflowGraph | null;
+  steps: StepDetail[];
 };
 
 export type AuthUser = {

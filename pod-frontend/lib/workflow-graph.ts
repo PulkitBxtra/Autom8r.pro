@@ -94,9 +94,9 @@ function isConfigured(node: WorkflowNode) {
 }
 
 // Converts the canvas into the graph pod-backend stores. Steps added with +
-// but never given an app are dropped when nothing hangs off them (there's no
-// delete in the UI yet, so one stray click shouldn't block saving). An
-// unconfigured step in the middle of a path can't be dropped without
+// but never given an app are dropped when nothing hangs off them, so a stray
+// click doesn't block saving even if the user never deletes the empty step.
+// An unconfigured step in the middle of a path can't be dropped without
 // breaking it, so that returns an error naming the step instead.
 export function toWorkflowGraph(
   nodes: WorkflowNode[],

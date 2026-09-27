@@ -2,10 +2,11 @@
 
 import { useState } from "react";
 import { ChevronRight, Search, X } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, formatDuration } from "@/lib/utils";
 import { APP_CATALOG } from "@/lib/mock-catalog";
 import { Input } from "@/components/ui/input";
-import type { App, AppAction, AppTrigger } from "@/lib/types";
+import { StepStatusBadge } from "@/components/workflows/run-status";
+import type { App, AppAction, AppTrigger, StepDetail } from "@/lib/types";
 import type { WorkflowNode } from "@/lib/workflow-graph";
 
 type Tab = "setup" | "configure" | "test";
@@ -21,14 +22,18 @@ export function StepPanel({
   readOnly = false,
   onClose,
   onSelectAppItem,
+  run,
 }: {
   node: WorkflowNode;
   stepNumber: number;
   readOnly?: boolean;
   onClose: () => void;
   onSelectAppItem?: (app: App, item: AppTrigger | AppAction | undefined) => void;
+  // The run being viewed, if any: whether one is selected, and this step's part in it.
+  run?: { selected: boolean; step: StepDetail | null; now: number };
 }) {
-  const [tab, setTab] = useState<Tab>("setup");
+  // Viewing a run means the user wants to see what happened, so open on Test.
+  const [tab, setTab] = useState<Tab>(run?.selected ? "test" : "setup");
   const [appPickerOpen, setAppPickerOpen] = useState(!node.data.app);
   const [query, setQuery] = useState("");
 
@@ -196,14 +201,102 @@ export function StepPanel({
           </p>
         )}
 
-        {tab === "test" && (
-          <p className="text-sm text-text-muted">
-            Per-step testing isn&apos;t available yet. Use{" "}
-            <span className="font-semibold text-text">Run now</span> on the
-            workflow page to test the whole chain.
-          </p>
-        )}
+        {tab === "test" &&
+          (run?.selected ? (
+            run.step ? (
+              <StepRunDetails step={run.step} now={run.now} />
+            ) : (
+              <p className="text-sm text-text-muted">
+                This step wasn&apos;t part of the selected run -- the workflow
+                has changed since that run.
+              </p>
+            )
+          ) : (
+            <p className="text-sm text-text-muted">
+              Pick a run in <span className="font-semibold text-text">Run history</span>{" "}
+              to see what this step received and returned, or use{" "}
+              <span className="font-semibold text-text">Run now</span> to start one.
+            </p>
+          ))}
       </div>
     </div>
   );
+}
+
+// What one step did in the selected run: status, timing, error, and the exact
+// input it ran with (templates resolved) and output it produced.
+function StepRunDetails({ step, now }: { step: StepDetail; now: number }) {
+  const finished = step.endedAt != null && step.status !== "RUNNING";
+  const duration =
+    step.startedAt != null ? (finished ? step.endedAt! : now) - step.startedAt : null;
+
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-center gap-2">
+        <StepStatusBadge step={step} />
+        {step.attempt > 1 && (
+          <span className="text-xs text-text-muted">{step.attempt} attempts</span>
+        )}
+        {duration != null && step.status !== "SKIPPED" && (
+          <span className="text-xs text-text-muted">
+            {finished ? "took" : "running for"} {formatDuration(duration)}
+          </span>
+        )}
+      </div>
+
+      {step.status === "RETRY_WAIT" && step.nextAttemptAt != null && (
+        <p className="text-xs text-amber-400">
+          Retrying in {formatDuration(Math.max(0, step.nextAttemptAt - now))}
+        </p>
+      )}
+      {step.status === "SKIPPED" && (
+        <p className="text-sm text-text-muted">
+          Skipped: no path leading to this step was taken in this run.
+        </p>
+      )}
+      {step.status === "CANCELLED" && (
+        <p className="text-sm text-text-muted">
+          Cancelled: another step failed before this one ran.
+        </p>
+      )}
+
+      {step.error && (
+        <JsonSection label={step.status === "FAILED" ? "Error" : "Last error"} tone="danger">
+          {step.error}
+        </JsonSection>
+      )}
+      {step.input != null && <JsonSection label="Input">{json(step.input)}</JsonSection>}
+      {step.output != null && <JsonSection label="Output">{json(step.output)}</JsonSection>}
+    </div>
+  );
+}
+
+function JsonSection({
+  label,
+  tone,
+  children,
+}: {
+  label: string;
+  tone?: "danger";
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-text-muted">{label}</p>
+      <pre
+        className={cn(
+          "max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-xl border px-4 py-3 font-mono text-xs leading-relaxed",
+          tone === "danger"
+            ? "border-red-500/30 bg-red-500/5 text-red-300"
+            : "border-border-strong bg-surface-sunken text-text"
+        )}
+      >
+        {children}
+      </pre>
+    </div>
+  );
+}
+
+function json(value: unknown) {
+  return JSON.stringify(value, null, 2);
 }

@@ -6,9 +6,12 @@ import { MoreVertical, Trash2, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { WorkflowNode } from "@/lib/workflow-graph";
 import { useCanvasActions } from "./canvas-actions-context";
+import { STEP_BORDER, StepStatusBadge, stepDidNotRun, useRunStep } from "@/components/workflows/run-status";
 
 export function GraphNode({ id, data, selected }: NodeProps<WorkflowNode>) {
   const { interactive, selectedNodeId, onConfigure, onDelete } = useCanvasActions();
+  // Set when a run is being viewed: how this step did in that run.
+  const runStep = useRunStep(id);
   const isOpenInPanel = id === selectedNodeId;
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -27,7 +30,13 @@ export function GraphNode({ id, data, selected }: NodeProps<WorkflowNode>) {
   }, [menuOpen]);
 
   return (
-    <div className="group relative w-64">
+    <div className={cn("group relative w-64", runStep && stepDidNotRun(runStep.status) && "opacity-45")}>
+      {runStep && (
+        <div className="pointer-events-none absolute -top-2.5 right-3 z-10">
+          <StepStatusBadge step={runStep} className="bg-surface shadow-md" />
+        </div>
+      )}
+
       {!isTrigger && (
         <Handle
           type="target"
@@ -42,6 +51,8 @@ export function GraphNode({ id, data, selected }: NodeProps<WorkflowNode>) {
           "flex w-full items-center gap-3 rounded-2xl border p-3.5 text-left shadow-lg shadow-black/40 transition-colors",
           empty ? "border-dashed border-border-strong bg-surface-raised" : "border-border-strong bg-surface-raised",
           "hover:border-lemon/50",
+          runStep && STEP_BORDER[runStep.status],
+          runStep?.status === "RUNNING" && "shadow-lemon/20",
           (selected || isOpenInPanel) && "border-lemon"
         )}
       >
