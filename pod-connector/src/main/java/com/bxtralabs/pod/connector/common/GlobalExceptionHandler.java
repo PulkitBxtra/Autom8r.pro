@@ -1,5 +1,6 @@
 package com.bxtralabs.pod.connector.common;
 
+import com.bxtralabs.pod.connector.connections.ConnectionsNotConfiguredException;
 import io.jsonwebtoken.JwtException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -23,6 +24,11 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(JwtException.class)
     public ResponseEntity<Map<String, String>> handleBadToken(JwtException ex) {
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Invalid or expired login token"));
+    }
+
+    @ExceptionHandler(ConnectionsNotConfiguredException.class)
+    public ResponseEntity<Map<String, String>> handleNotConfigured(ConnectionsNotConfiguredException ex) {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Map.of("error", ex.getMessage()));
     }
 
     @ExceptionHandler(MissingRequestHeaderException.class)
