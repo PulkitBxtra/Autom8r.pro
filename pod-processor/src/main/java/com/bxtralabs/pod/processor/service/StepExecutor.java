@@ -15,8 +15,8 @@ import org.springframework.stereotype.Service;
 import java.util.List;
 import java.util.Map;
 
-// Runs one READY step: claim it, resolve its templates, call its handler, and hand the
-// result back to the Orchestrator. Execution happens outside any transaction, so a slow
+// Runs one READY step: claim it, resolve its templates, call its handler, and report the
+// result on step-results. Execution happens outside any transaction, so a slow
 // step (e.g. an HTTP call) never holds the run lock.
 @Service
 public class StepExecutor {
@@ -37,7 +37,7 @@ public class StepExecutor {
     private ActionHandlerRegistry handlers;
 
     @Autowired
-    private Orchestrator orchestrator;
+    private StepResultPublisher resultPublisher;
 
     public void execute(String runId, String stepRunId) {
         if (stepRunRepository.claim(stepRunId, System.currentTimeMillis()) == 0) {
@@ -63,9 +63,10 @@ public class StepExecutor {
             error = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
         }
 
-        // If this throws (e.g. the DB is down) the step stays RUNNING; recovering stuck steps
-        // is Phase 3 (a sweeper for RUNNING steps whose startedAt is too old).
-        orchestrator.completeStep(runId, stepRunId, input, output, error);
+        // Goes to the orchestrator via step-results (or directly if Kafka won't take it). If
+        // both paths fail (Kafka and the DB down) the step stays RUNNING; the stuck-step
+        // sweeper (3.4) recovers it.
+        resultPublisher.publish(new StepResultMessage(runId, stepRunId, input, output, error));
     }
 
     private WorkflowGraph graphFor(String runId) {
