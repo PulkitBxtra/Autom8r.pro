@@ -30,7 +30,7 @@ public class StepResultConsumer {
         // completeStep commits before returning, so we only ack once the result is saved.
         // Redelivered duplicates are no-ops: the step is no longer RUNNING.
         orchestrator.completeStep(result.runId(), result.stepRunId(), result.input(), result.output(),
-                result.error(), result.retryable());
+                result.error(), result.retryable(), result.attempt());
         ack.acknowledge();
     }
 }

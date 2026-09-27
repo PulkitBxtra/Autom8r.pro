@@ -113,11 +113,12 @@ public class Orchestrator {
     // input is what the step ran with (templates resolved), kept for debugging and the UI.
     // error == null means success. A failure with retryable == true waits and tries again
     // (RETRY_WAIT) while attempts remain; otherwise it fails the run.
-    // Repeated or late calls are harmless: a step that isn't RUNNING is ignored, and a run
-    // that already ended only records the step's result.
+    // Repeated or late calls are harmless: a step that isn't RUNNING is ignored, a result for a
+    // different attempt than the one running is ignored, and a run that already ended only
+    // records the step's result.
     @Transactional
     public void completeStep(String runId, String stepRunId, Map<String, Object> input,
-                             Map<String, Object> output, String error, boolean retryable) {
+                             Map<String, Object> output, String error, boolean retryable, int attempt) {
         ExecutionRun run = executionRunRepository.findByIdForUpdate(runId).orElse(null);
         if (run == null) {
             return;
@@ -133,6 +134,13 @@ public class Orchestrator {
             }
         }
         if (step == null || step.getStatus() != StepStatus.RUNNING) {
+            return;
+        }
+        // e.g. the sweeper timed out attempt 1 and attempt 2 is now running when attempt 1's
+        // worker finally reports: that result describes a different execution.
+        if (step.getAttempt() != attempt) {
+            System.out.println("Ignoring result for " + stepRunId + " attempt " + attempt
+                    + "; attempt " + step.getAttempt() + " is running");
             return;
         }
 
@@ -210,6 +218,7 @@ public class Orchestrator {
                 if (child.getPendingDeps() == 0) {
                     if (child.getActiveParents() > 0) {
                         child.setStatus(StepStatus.READY);
+                        child.setReadyAt(now);
                         ready.add(child);
                     } else {
                         child.setStatus(StepStatus.SKIPPED);

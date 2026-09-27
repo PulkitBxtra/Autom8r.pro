@@ -36,10 +36,12 @@ public class RetryScheduler {
         do {
             released[0] = 0;
             transactionTemplate.executeWithoutResult(tx -> {
-                List<StepRun> due = stepRunRepository.lockDueRetries(System.currentTimeMillis(), BATCH_SIZE);
+                long now = System.currentTimeMillis();
+                List<StepRun> due = stepRunRepository.lockDueRetries(now, BATCH_SIZE);
                 for (StepRun step : due) {
                     step.setStatus(StepStatus.READY);
                     step.setNextAttemptAt(null);
+                    step.setReadyAt(now);
                 }
                 stepRunRepository.saveAll(due);
                 outboxRepository.saveAll(due.stream().map(s -> new StepTaskOutbox(s.getRunId(), s.getId())).toList());

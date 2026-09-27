@@ -49,8 +49,12 @@ public class StepExecutor {
         Map<String, Object> output = null;
         String error = null;
         boolean retryable = false;
+        // Set by the claim above. If loading the step fails, this stays 0, the result below is
+        // ignored as not matching any attempt, and the sweeper recovers the step.
+        int attempt = 0;
         try {
             StepRun step = stepRunRepository.findById(stepRunId).orElseThrow();
+            attempt = step.getAttempt();
             WorkflowGraph graph = graphFor(runId);
             GraphNode node = graph.nodes().stream()
                     .filter(n -> n.id().equals(step.getNodeId()))
@@ -73,7 +77,7 @@ public class StepExecutor {
         // Goes to the orchestrator via step-results (or directly if Kafka won't take it). If
         // both paths fail (Kafka and the DB down) the step stays RUNNING; the stuck-step
         // sweeper (3.4) recovers it.
-        resultPublisher.publish(new StepResultMessage(runId, stepRunId, input, output, error, retryable));
+        resultPublisher.publish(new StepResultMessage(runId, stepRunId, input, output, error, retryable, attempt));
     }
 
     private WorkflowGraph graphFor(String runId) {

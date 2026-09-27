@@ -149,13 +149,13 @@ class OrchestratorTest {
         StepRun s = step(nodeId);
         assertEquals(StepStatus.READY, s.getStatus(), nodeId + " should be READY before it runs");
         s.setStatus(StepStatus.RUNNING);
-        orchestrator.completeStep("exn_1", s.getId(), null, output, null, false);
+        orchestrator.completeStep("exn_1", s.getId(), null, output, null, false, s.getAttempt());
     }
 
     private void failStep(String nodeId, String error) {
         StepRun s = step(nodeId);
         s.setStatus(StepStatus.RUNNING);
-        orchestrator.completeStep("exn_1", s.getId(), null, null, error, false);
+        orchestrator.completeStep("exn_1", s.getId(), null, null, error, false, s.getAttempt());
     }
 
     // ---------- starting a run ----------
@@ -341,7 +341,7 @@ class OrchestratorTest {
         assertEquals(StepStatus.RUNNING, status("b"), "running steps aren't interrupted");
 
         dispatched.clear();
-        orchestrator.completeStep("exn_1", step("b").getId(), null, Map.of("late", true), null, false);
+        orchestrator.completeStep("exn_1", step("b").getId(), null, Map.of("late", true), null, false, step("b").getAttempt());
 
         assertEquals(StepStatus.SUCCEEDED, status("b"));
         assertEquals(StepStatus.CANCELLED, status("c"));
@@ -357,7 +357,7 @@ class OrchestratorTest {
         orchestrator.onRunStarted("exn_1");
         runStep("a", Map.of("first", true));
 
-        orchestrator.completeStep("exn_1", step("a").getId(), null, Map.of("second", true), null, false);
+        orchestrator.completeStep("exn_1", step("a").getId(), null, Map.of("second", true), null, false, step("a").getAttempt());
 
         assertEquals(Map.of("first", true), step("a").getOutput());
         assertEquals(1, step("c").getPendingDeps(), "c must only be decremented once for a");
@@ -368,7 +368,7 @@ class OrchestratorTest {
         givenRun(DIAMOND);
         orchestrator.onRunStarted("exn_1");
 
-        orchestrator.completeStep("exn_1", step("a").getId(), null, Map.of(), null, false); // a is READY, not RUNNING
+        orchestrator.completeStep("exn_1", step("a").getId(), null, Map.of(), null, false, step("a").getAttempt()); // a is READY, not RUNNING
 
         assertEquals(StepStatus.READY, status("a"));
         assertEquals(2, step("c").getPendingDeps());
@@ -380,11 +380,11 @@ class OrchestratorTest {
         orchestrator.onRunStarted("exn_1");
 
         step("a").setStatus(StepStatus.RUNNING);
-        orchestrator.completeStep("exn_1", step("a").getId(), Map.of("to", "x@y.z"), Map.of("ok", true), null, false);
+        orchestrator.completeStep("exn_1", step("a").getId(), Map.of("to", "x@y.z"), Map.of("ok", true), null, false, step("a").getAttempt());
         assertEquals(Map.of("to", "x@y.z"), step("a").getInput());
 
         step("b").setStatus(StepStatus.RUNNING);
-        orchestrator.completeStep("exn_1", step("b").getId(), Map.of("url", "http://bad"), null, "HTTP 500", false);
+        orchestrator.completeStep("exn_1", step("b").getId(), Map.of("url", "http://bad"), null, "HTTP 500", false, step("b").getAttempt());
         assertEquals(Map.of("url", "http://bad"), step("b").getInput());
         assertEquals("HTTP 500", step("b").getError());
     }
@@ -397,7 +397,7 @@ class OrchestratorTest {
         assertEquals(StepStatus.READY, s.getStatus(), nodeId + " should be READY before an attempt");
         s.setStatus(StepStatus.RUNNING);
         s.setAttempt(s.getAttempt() + 1);
-        orchestrator.completeStep("exn_1", s.getId(), Map.of(), output, error, retryable);
+        orchestrator.completeStep("exn_1", s.getId(), Map.of(), output, error, retryable, s.getAttempt());
     }
 
     // What RetryScheduler does once the wait is over.
@@ -508,7 +508,7 @@ class OrchestratorTest {
         step("b").setAttempt(1);
         attempt("a", null, "HTTP 404", false); // run fails while b is running
 
-        orchestrator.completeStep("exn_1", step("b").getId(), Map.of(), null, "HTTP 503", true);
+        orchestrator.completeStep("exn_1", step("b").getId(), Map.of(), null, "HTTP 503", true, step("b").getAttempt());
 
         assertEquals(StepStatus.FAILED, status("b"), "no point retrying for a run that already failed");
     }
@@ -522,5 +522,49 @@ class OrchestratorTest {
 
         assertEquals("RUNNING", run.getStatus());
         assertNull(run.getEndTimestamp());
+    }
+
+    // ---------- attempts / sweeper interplay ----------
+
+    @Test
+    void lateResultFromAnEarlierAttemptIsIgnored() throws Exception {
+        givenRun(DIAMOND);
+        orchestrator.onRunStarted("exn_1");
+        StepRun a = step("a");
+        a.setStatus(StepStatus.RUNNING);
+        a.setAttempt(2); // attempt 1 was timed out by the sweeper and retried
+
+        orchestrator.completeStep("exn_1", a.getId(), Map.of(), Map.of("stale", true), null, false, 1);
+
+        assertEquals(StepStatus.RUNNING, status("a"), "attempt 1's result must not complete attempt 2");
+        assertNull(a.getOutput());
+        assertEquals(2, step("c").getPendingDeps());
+    }
+
+    @Test
+    void sweeperTimeoutRetriesTheStep() throws Exception {
+        givenRun(DIAMOND);
+        orchestrator.onRunStarted("exn_1");
+        StepRun a = step("a");
+        a.setStatus(StepStatus.RUNNING);
+        a.setAttempt(1);
+
+        // What StuckWorkSweeper reports for a step with no result.
+        orchestrator.completeStep("exn_1", a.getId(), null, null, "No result within 300s", true, 1);
+
+        assertEquals(StepStatus.RETRY_WAIT, status("a"));
+        assertEquals("RUNNING", run.getStatus());
+    }
+
+    @Test
+    void stepsBecomingReadyRecordWhen() throws Exception {
+        givenRun(DIAMOND);
+        long before = System.currentTimeMillis();
+
+        orchestrator.onRunStarted("exn_1");
+
+        assertNotNull(step("a").getReadyAt());
+        assertTrue(step("a").getReadyAt() >= before);
+        assertNull(step("c").getReadyAt(), "c isn't READY yet");
     }
 }

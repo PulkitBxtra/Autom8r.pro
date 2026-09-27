@@ -37,4 +37,17 @@ public interface StepRunRepository extends JpaRepository<StepRun, String> {
     @Query(value = "select * from step_run where status = 'RETRY_WAIT' and next_attempt_at <= :now " +
             "order by next_attempt_at limit :limit for update skip locked", nativeQuery = true)
     List<StepRun> lockDueRetries(@Param("now") long now, @Param("limit") int limit);
+
+    // RUNNING steps claimed before the cutoff: their worker probably died or their result was
+    // lost. Not locked -- the sweeper hands each to Orchestrator.completeStep, which takes the
+    // run lock and re-checks status and attempt, so a result that races in wins or loses cleanly.
+    @Query(value = "select * from step_run where status = 'RUNNING' and started_at < :cutoff " +
+            "order by started_at limit :limit", nativeQuery = true)
+    List<StepRun> findStuckRunning(@Param("cutoff") long cutoff, @Param("limit") int limit);
+
+    // READY steps that have waited since before the cutoff (or predate ready_at), locked so
+    // concurrent sweepers don't re-queue the same step twice in one pass.
+    @Query(value = "select * from step_run where status = 'READY' and (ready_at is null or ready_at < :cutoff) " +
+            "order by ready_at nulls first limit :limit for update skip locked", nativeQuery = true)
+    List<StepRun> lockStaleReady(@Param("cutoff") long cutoff, @Param("limit") int limit);
 }

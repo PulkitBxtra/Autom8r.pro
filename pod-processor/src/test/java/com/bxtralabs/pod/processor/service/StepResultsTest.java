@@ -38,11 +38,11 @@ class StepResultsTest {
         when(kafka.send(anyString(), anyString(), anyString()))
                 .thenReturn(CompletableFuture.completedFuture(mock(SendResult.class)));
 
-        publisher.publish(new StepResultMessage("exn_1", "stp_a", INPUT, OUTPUT, null, false));
+        publisher.publish(new StepResultMessage("exn_1", "stp_a", INPUT, OUTPUT, null, false, 1));
 
         ArgumentCaptor<String> payload = ArgumentCaptor.forClass(String.class);
         verify(kafka).send(eq(StepTopics.STEP_RESULTS), eq("exn_1"), payload.capture());
-        assertEquals(new StepResultMessage("exn_1", "stp_a", INPUT, OUTPUT, null, false),
+        assertEquals(new StepResultMessage("exn_1", "stp_a", INPUT, OUTPUT, null, false, 1),
                 jsonMapper.readValue(payload.getValue(), StepResultMessage.class));
         verifyNoInteractions(orchestrator);
     }
@@ -52,9 +52,9 @@ class StepResultsTest {
         when(kafka.send(anyString(), anyString(), anyString()))
                 .thenReturn(CompletableFuture.failedFuture(new RuntimeException("RecordTooLargeException")));
 
-        publisher.publish(new StepResultMessage("exn_1", "stp_a", INPUT, OUTPUT, null, false));
+        publisher.publish(new StepResultMessage("exn_1", "stp_a", INPUT, OUTPUT, null, false, 1));
 
-        verify(orchestrator).completeStep("exn_1", "stp_a", INPUT, OUTPUT, null, false);
+        verify(orchestrator).completeStep("exn_1", "stp_a", INPUT, OUTPUT, null, false, 1);
     }
 
     @Test
@@ -63,7 +63,7 @@ class StepResultsTest {
         when(kafka.send(anyString(), anyString(), anyString())).thenReturn(pending);
 
         long start = System.nanoTime();
-        publisher.publish(new StepResultMessage("exn_1", "stp_a", null, Map.of(), null, false));
+        publisher.publish(new StepResultMessage("exn_1", "stp_a", null, Map.of(), null, false, 1));
         long tookMs = (System.nanoTime() - start) / 1_000_000;
 
         assertTrue(tookMs < 100, "publish returned in " + tookMs + "ms without waiting for the ack");
@@ -74,19 +74,19 @@ class StepResultsTest {
     void sendThatFailsLaterStillFallsBack() {
         CompletableFuture<SendResult<String, String>> pending = new CompletableFuture<>();
         when(kafka.send(anyString(), anyString(), anyString())).thenReturn(pending);
-        publisher.publish(new StepResultMessage("exn_1", "stp_a", null, null, "HTTP 503", true));
+        publisher.publish(new StepResultMessage("exn_1", "stp_a", null, null, "HTTP 503", true, 1));
         verifyNoInteractions(orchestrator);
 
         pending.completeExceptionally(new RuntimeException("delivery timeout"));
 
-        verify(orchestrator).completeStep("exn_1", "stp_a", null, null, "HTTP 503", true);
+        verify(orchestrator).completeStep("exn_1", "stp_a", null, null, "HTTP 503", true, 1);
     }
 
     @Test
     void successfulSendDoesNotFallBack() {
         CompletableFuture<SendResult<String, String>> pending = new CompletableFuture<>();
         when(kafka.send(anyString(), anyString(), anyString())).thenReturn(pending);
-        publisher.publish(new StepResultMessage("exn_1", "stp_a", null, Map.of(), null, false));
+        publisher.publish(new StepResultMessage("exn_1", "stp_a", null, Map.of(), null, false, 1));
 
         pending.complete(mock(SendResult.class));
 
@@ -97,9 +97,9 @@ class StepResultsTest {
     void sendThrowingImmediatelyFallsBack() {
         when(kafka.send(anyString(), anyString(), anyString())).thenThrow(new RuntimeException("producer closed"));
 
-        publisher.publish(new StepResultMessage("exn_1", "stp_a", null, Map.of("x", 1), null, false));
+        publisher.publish(new StepResultMessage("exn_1", "stp_a", null, Map.of("x", 1), null, false, 1));
 
-        verify(orchestrator).completeStep("exn_1", "stp_a", null, Map.of("x", 1), null, false);
+        verify(orchestrator).completeStep("exn_1", "stp_a", null, Map.of("x", 1), null, false, 1);
     }
 
     // ---------- consumer ----------
@@ -107,30 +107,30 @@ class StepResultsTest {
     @Test
     void consumerAppliesSuccessThenAcks() {
         Acknowledgment ack = mock(Acknowledgment.class);
-        String payload = jsonMapper.writeValueAsString(new StepResultMessage("exn_1", "stp_a", INPUT, OUTPUT, null, false));
+        String payload = jsonMapper.writeValueAsString(new StepResultMessage("exn_1", "stp_a", INPUT, OUTPUT, null, false, 1));
 
         consumer.consume(payload, ack);
 
         var inOrder = inOrder(orchestrator, ack);
-        inOrder.verify(orchestrator).completeStep("exn_1", "stp_a", INPUT, OUTPUT, null, false);
+        inOrder.verify(orchestrator).completeStep("exn_1", "stp_a", INPUT, OUTPUT, null, false, 1);
         inOrder.verify(ack).acknowledge();
     }
 
     @Test
     void consumerAppliesFailure() {
         Acknowledgment ack = mock(Acknowledgment.class);
-        String payload = jsonMapper.writeValueAsString(new StepResultMessage("exn_1", "stp_a", INPUT, null, "HTTP 503", true));
+        String payload = jsonMapper.writeValueAsString(new StepResultMessage("exn_1", "stp_a", INPUT, null, "HTTP 503", true, 1));
 
         consumer.consume(payload, ack);
 
-        verify(orchestrator).completeStep("exn_1", "stp_a", INPUT, null, "HTTP 503", true);
+        verify(orchestrator).completeStep("exn_1", "stp_a", INPUT, null, "HTTP 503", true, 1);
     }
 
     @Test
     void consumerDoesNotAckWhenApplyingFails() {
         Acknowledgment ack = mock(Acknowledgment.class);
-        doThrow(new RuntimeException("db down")).when(orchestrator).completeStep(any(), any(), any(), any(), any(), anyBoolean());
-        String payload = jsonMapper.writeValueAsString(new StepResultMessage("exn_1", "stp_a", null, Map.of(), null, false));
+        doThrow(new RuntimeException("db down")).when(orchestrator).completeStep(any(), any(), any(), any(), any(), anyBoolean(), anyInt());
+        String payload = jsonMapper.writeValueAsString(new StepResultMessage("exn_1", "stp_a", null, Map.of(), null, false, 1));
 
         assertThrows(RuntimeException.class, () -> consumer.consume(payload, ack));
         verify(ack, never()).acknowledge(); // Kafka redelivers

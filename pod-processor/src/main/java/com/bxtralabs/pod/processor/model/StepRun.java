@@ -58,6 +58,10 @@ public class StepRun {
     // When a RETRY_WAIT step becomes READY again. Null otherwise.
     @Column(name = "next_attempt_at")
     private Long nextAttemptAt;
+    // When the step last became READY (or was last re-queued). The sweeper re-queues READY
+    // steps that have waited too long, in case their step-tasks message was dropped.
+    @Column(name = "ready_at")
+    private Long readyAt;
     private Long createdAt;
     private Long startedAt;
     private Long endedAt;
@@ -160,6 +164,14 @@ public class StepRun {
 
     public void setNextAttemptAt(Long nextAttemptAt) {
         this.nextAttemptAt = nextAttemptAt;
+    }
+
+    public Long getReadyAt() {
+        return readyAt;
+    }
+
+    public void setReadyAt(Long readyAt) {
+        this.readyAt = readyAt;
     }
 
     public Long getCreatedAt() {
