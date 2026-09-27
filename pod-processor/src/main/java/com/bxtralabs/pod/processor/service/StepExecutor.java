@@ -8,6 +8,7 @@ import com.bxtralabs.pod.processor.repository.ExecutionRunRepository;
 import com.bxtralabs.pod.processor.repository.StepRunRepository;
 import com.bxtralabs.pod.processor.repository.WorkflowVersionRepository;
 import com.bxtralabs.pod.processor.service.handlers.ActionHandlerRegistry;
+import com.bxtralabs.pod.processor.service.handlers.PermanentStepException;
 import com.bxtralabs.pod.processor.service.template.TemplateResolver;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -47,6 +48,7 @@ public class StepExecutor {
         Map<String, Object> input = null;
         Map<String, Object> output = null;
         String error = null;
+        boolean retryable = false;
         try {
             StepRun step = stepRunRepository.findById(stepRunId).orElseThrow();
             WorkflowGraph graph = graphFor(runId);
@@ -59,14 +61,19 @@ public class StepExecutor {
             List<StepRun> steps = stepRunRepository.findByRunId(runId);
             input = templateResolver.resolveParameters(node.parameters(), TemplateResolver.context(graph, steps));
             output = handlers.handlerFor(node).execute(node, input);
+        } catch (PermanentStepException e) {
+            error = e.getMessage();
         } catch (Exception e) {
+            // Anything a handler didn't mark permanent (timeouts, connection errors, 5xx...) is
+            // worth another attempt.
             error = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+            retryable = true;
         }
 
         // Goes to the orchestrator via step-results (or directly if Kafka won't take it). If
         // both paths fail (Kafka and the DB down) the step stays RUNNING; the stuck-step
         // sweeper (3.4) recovers it.
-        resultPublisher.publish(new StepResultMessage(runId, stepRunId, input, output, error));
+        resultPublisher.publish(new StepResultMessage(runId, stepRunId, input, output, error, retryable));
     }
 
     private WorkflowGraph graphFor(String runId) {

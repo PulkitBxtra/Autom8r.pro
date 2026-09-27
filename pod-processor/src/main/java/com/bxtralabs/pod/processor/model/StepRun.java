@@ -11,7 +11,9 @@ import java.util.Map;
 // Unique on (run_id, node_id): if workflow-events is redelivered, re-creating the
 // steps for the same run fails instead of starting the run twice.
 @Entity
-@Table(uniqueConstraints = @UniqueConstraint(columnNames = {"run_id", "node_id"}))
+@Table(uniqueConstraints = @UniqueConstraint(columnNames = {"run_id", "node_id"}),
+        // RetryScheduler polls for due retries by these two columns.
+        indexes = @Index(name = "idx_step_run_status_next_attempt", columnList = "status, next_attempt_at"))
 public class StepRun {
 
     @PrePersist
@@ -50,8 +52,12 @@ public class StepRun {
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(columnDefinition = "jsonb")
     private Map<String, Object> output;
+    // Latest attempt's error; kept while waiting to retry, cleared if a retry succeeds.
     @Column(columnDefinition = "text")
     private String error;
+    // When a RETRY_WAIT step becomes READY again. Null otherwise.
+    @Column(name = "next_attempt_at")
+    private Long nextAttemptAt;
     private Long createdAt;
     private Long startedAt;
     private Long endedAt;
@@ -146,6 +152,14 @@ public class StepRun {
 
     public void setError(String error) {
         this.error = error;
+    }
+
+    public Long getNextAttemptAt() {
+        return nextAttemptAt;
+    }
+
+    public void setNextAttemptAt(Long nextAttemptAt) {
+        this.nextAttemptAt = nextAttemptAt;
     }
 
     public Long getCreatedAt() {

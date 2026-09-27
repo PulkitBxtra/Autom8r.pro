@@ -17,7 +17,8 @@ import java.util.Map;
 // input: url (required), method (default GET), headers (map), body (string, or any JSON value
 // which is sent as JSON), timeoutSeconds (default 30, max 120).
 // output: status, body (parsed as JSON when it is JSON, otherwise text).
-// A 4xx/5xx response fails the step.
+// A 4xx/5xx response fails the step. 5xx, 408, 429, timeouts and connection errors are
+// temporary (the step is retried); other 4xx and a missing/invalid url are permanent.
 //
 // Note: the URL is whatever the workflow author configured, so this can reach anything the
 // processor can reach, including internal services. Block private/loopback addresses before
@@ -49,13 +50,17 @@ public class HttpRequestHandler implements ActionHandler {
     public Map<String, Object> execute(GraphNode node, Map<String, Object> input) throws Exception {
         Object url = input.get("url");
         if (url == null || String.valueOf(url).isBlank()) {
-            throw new IllegalArgumentException("http_request needs a url");
+            throw new PermanentStepException("http_request needs a url");
         }
         String method = input.get("method") == null ? "GET" : String.valueOf(input.get("method")).toUpperCase();
         int timeout = Math.min(asInt(input.get("timeoutSeconds"), 30), MAX_TIMEOUT_SECONDS);
 
-        HttpRequest.Builder request = HttpRequest.newBuilder(URI.create(String.valueOf(url)))
-                .timeout(Duration.ofSeconds(timeout));
+        HttpRequest.Builder request;
+        try {
+            request = HttpRequest.newBuilder(URI.create(String.valueOf(url))).timeout(Duration.ofSeconds(timeout));
+        } catch (IllegalArgumentException badUrl) {
+            throw new PermanentStepException("http_request has an invalid url: " + url);
+        }
 
         if (input.get("headers") instanceof Map<?, ?> headers) {
             headers.forEach((k, v) -> request.header(String.valueOf(k), String.valueOf(v)));
@@ -82,14 +87,23 @@ public class HttpRequestHandler implements ActionHandler {
             if (preview.length() > ERROR_BODY_PREVIEW) {
                 preview = preview.substring(0, ERROR_BODY_PREVIEW) + "...";
             }
-            throw new IllegalStateException("HTTP " + response.statusCode() + " from " + method + " " + url
-                    + (preview.isBlank() ? "" : ": " + preview));
+            String message = "HTTP " + response.statusCode() + " from " + method + " " + url
+                    + (preview.isBlank() ? "" : ": " + preview);
+            if (isTemporary(response.statusCode())) {
+                throw new IllegalStateException(message);
+            }
+            throw new PermanentStepException(message);
         }
 
         Map<String, Object> output = new LinkedHashMap<>();
         output.put("status", response.statusCode());
         output.put("body", parseBody(response.body()));
         return output;
+    }
+
+    // Server errors, request timeout and rate limiting may succeed later; other 4xx won't.
+    static boolean isTemporary(int status) {
+        return status >= 500 || status == 408 || status == 429;
     }
 
     private Object parseBody(String body) {

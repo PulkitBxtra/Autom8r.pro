@@ -46,6 +46,9 @@ public class Orchestrator {
     @Autowired
     private StepTaskOutboxRepository stepTaskOutboxRepository;
 
+    @Autowired
+    private RetryPolicy retryPolicy;
+
     // Creates one StepRun per node of the run's pinned graph, completes the trigger step,
     // and releases whatever the trigger unblocks.
     // Safe to call twice for the same run (Kafka is at-least-once): the second call is a no-op.
@@ -108,11 +111,13 @@ public class Orchestrator {
 
     // Records the result of a step that was RUNNING and advances the run.
     // input is what the step ran with (templates resolved), kept for debugging and the UI.
-    // error == null means success. Repeated or late calls are harmless: a step that isn't
-    // RUNNING is ignored, and a run that already ended only records the step's result.
+    // error == null means success. A failure with retryable == true waits and tries again
+    // (RETRY_WAIT) while attempts remain; otherwise it fails the run.
+    // Repeated or late calls are harmless: a step that isn't RUNNING is ignored, and a run
+    // that already ended only records the step's result.
     @Transactional
     public void completeStep(String runId, String stepRunId, Map<String, Object> input,
-                             Map<String, Object> output, String error) {
+                             Map<String, Object> output, String error, boolean retryable) {
         ExecutionRun run = executionRunRepository.findByIdForUpdate(runId).orElse(null);
         if (run == null) {
             return;
@@ -131,20 +136,32 @@ public class Orchestrator {
             return;
         }
 
-        step.setEndedAt(System.currentTimeMillis());
+        long now = System.currentTimeMillis();
+        step.setEndedAt(now);
         step.setInput(input);
         if (error != null) {
-            step.setStatus(StepStatus.FAILED);
             step.setError(error);
+            // Only worth waiting if the run can still use the result.
+            Long nextAttemptAt = retryable && !isEnded(run) ? retryPolicy.nextAttemptAt(step.getAttempt(), now) : null;
+            if (nextAttemptAt != null) {
+                step.setStatus(StepStatus.RETRY_WAIT);
+                step.setNextAttemptAt(nextAttemptAt);
+                stepRunRepository.save(step);
+                return;
+            }
+            step.setStatus(StepStatus.FAILED);
             stepRunRepository.save(step);
             if (!isEnded(run)) {
-                failRun(run, all, "Step " + step.getNodeId() + " failed: " + error);
+                String attempts = step.getAttempt() > 1 ? " after " + step.getAttempt() + " attempts" : "";
+                failRun(run, all, "Step " + step.getNodeId() + " failed" + attempts + ": " + error);
             }
             return;
         }
 
         step.setStatus(StepStatus.SUCCEEDED);
         step.setOutput(output);
+        step.setError(null); // an earlier attempt's error no longer applies
+        step.setNextAttemptAt(null);
         stepRunRepository.save(step);
 
         // A sibling failed while this step was running: keep its result, but don't start anything new.
@@ -219,15 +236,20 @@ public class Orchestrator {
         }
     }
 
-    // Fails the run and cancels every step that hasn't started. Steps already RUNNING are left
-    // alone; when they finish, completeStep records their result and stops there.
+    // Fails the run and cancels every step that hasn't started or is waiting to retry. Steps
+    // already RUNNING are left alone; when they finish, completeStep records their result and
+    // stops there. If RetryScheduler flips a RETRY_WAIT step to READY at the same moment, this
+    // still wins (it's the later write), and the worker's READY -> RUNNING claim then finds it
+    // CANCELLED and does nothing.
     private void failRun(ExecutionRun run, List<StepRun> steps, String reason) {
         System.out.println("Run " + run.getId() + " failed: " + reason);
         long now = System.currentTimeMillis();
         for (StepRun s : steps) {
-            if (s.getStatus() == StepStatus.PENDING || s.getStatus() == StepStatus.READY) {
+            if (s.getStatus() == StepStatus.PENDING || s.getStatus() == StepStatus.READY
+                    || s.getStatus() == StepStatus.RETRY_WAIT) {
                 s.setStatus(StepStatus.CANCELLED);
                 s.setEndedAt(now);
+                s.setNextAttemptAt(null);
             }
         }
         stepRunRepository.saveAll(steps);

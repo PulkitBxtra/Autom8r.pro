@@ -31,4 +31,10 @@ public interface StepRunRepository extends JpaRepository<StepRun, String> {
     default int claim(String id, long now) {
         return claim(id, now, StepStatus.READY, StepStatus.RUNNING);
     }
+
+    // Retries whose wait is over, oldest first, locked until the caller's transaction ends.
+    // SKIP LOCKED lets several schedulers (or pods) run without picking the same step.
+    @Query(value = "select * from step_run where status = 'RETRY_WAIT' and next_attempt_at <= :now " +
+            "order by next_attempt_at limit :limit for update skip locked", nativeQuery = true)
+    List<StepRun> lockDueRetries(@Param("now") long now, @Param("limit") int limit);
 }

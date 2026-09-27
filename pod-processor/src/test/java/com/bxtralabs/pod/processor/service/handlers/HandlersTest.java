@@ -47,6 +47,8 @@ class HandlersTest {
         });
         server.createContext("/text", ex -> respond(ex, 200, "plain text"));
         server.createContext("/boom", ex -> respond(ex, 500, "database on fire"));
+        server.createContext("/missing", ex -> respond(ex, 404, "no such thing"));
+        server.createContext("/slowdown", ex -> respond(ex, 429, "rate limited"));
         server.start();
         baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
     }
@@ -137,15 +139,57 @@ class HandlersTest {
     }
 
     @Test
-    void missingUrlFails() {
-        Exception e = assertThrows(IllegalArgumentException.class,
+    void missingUrlFailsPermanently() {
+        Exception e = assertThrows(PermanentStepException.class,
                 () -> http.execute(node("HTTP", "http_request"), Map.of()));
         assertTrue(e.getMessage().contains("url"));
     }
 
     @Test
-    void unreachableHostFails() {
-        assertThrows(Exception.class, () -> http.execute(node("HTTP", "http_request"),
+    void invalidUrlFailsPermanently() {
+        assertThrows(PermanentStepException.class,
+                () -> http.execute(node("HTTP", "http_request"), Map.of("url", "http://bad host/ x")));
+    }
+
+    // ---------- temporary vs permanent ----------
+
+    @Test
+    void serverErrorIsTemporary() {
+        // Anything that isn't PermanentStepException is retried.
+        Exception e = assertThrows(Exception.class,
+                () -> http.execute(node("HTTP", "http_request"), Map.of("url", baseUrl + "/boom")));
+        assertFalse(e instanceof PermanentStepException);
+    }
+
+    @Test
+    void rateLimitIsTemporary() {
+        Exception e = assertThrows(Exception.class,
+                () -> http.execute(node("HTTP", "http_request"), Map.of("url", baseUrl + "/slowdown")));
+        assertFalse(e instanceof PermanentStepException);
+        assertTrue(e.getMessage().contains("HTTP 429"));
+    }
+
+    @Test
+    void notFoundIsPermanent() {
+        Exception e = assertThrows(PermanentStepException.class,
+                () -> http.execute(node("HTTP", "http_request"), Map.of("url", baseUrl + "/missing")));
+        assertTrue(e.getMessage().contains("HTTP 404"));
+    }
+
+    @Test
+    void statusClassification() {
+        for (int status : new int[]{500, 502, 503, 504, 408, 429}) {
+            assertTrue(HttpRequestHandler.isTemporary(status), status + " should be temporary");
+        }
+        for (int status : new int[]{400, 401, 403, 404, 405, 409, 410, 422}) {
+            assertFalse(HttpRequestHandler.isTemporary(status), status + " should be permanent");
+        }
+    }
+
+    @Test
+    void unreachableHostIsTemporary() {
+        Exception e = assertThrows(Exception.class, () -> http.execute(node("HTTP", "http_request"),
                 Map.of("url", "http://127.0.0.1:1/nothing", "timeoutSeconds", 2)));
+        assertFalse(e instanceof PermanentStepException);
     }
 }

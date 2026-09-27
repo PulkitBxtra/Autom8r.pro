@@ -17,6 +17,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
@@ -44,6 +45,9 @@ class OrchestratorTest {
     private ConditionEvaluator conditionEvaluator;
     @Mock
     private StepTaskOutboxRepository stepTaskOutboxRepository;
+    // 3 attempts, 1s base delay, no jitter: delays are exactly 1s then 2s.
+    @Spy
+    private RetryPolicy retryPolicy = new RetryPolicy(3, 1000, 60_000, 0);
     @InjectMocks
     private Orchestrator orchestrator;
 
@@ -145,13 +149,13 @@ class OrchestratorTest {
         StepRun s = step(nodeId);
         assertEquals(StepStatus.READY, s.getStatus(), nodeId + " should be READY before it runs");
         s.setStatus(StepStatus.RUNNING);
-        orchestrator.completeStep("exn_1", s.getId(), null, output, null);
+        orchestrator.completeStep("exn_1", s.getId(), null, output, null, false);
     }
 
     private void failStep(String nodeId, String error) {
         StepRun s = step(nodeId);
         s.setStatus(StepStatus.RUNNING);
-        orchestrator.completeStep("exn_1", s.getId(), null, null, error);
+        orchestrator.completeStep("exn_1", s.getId(), null, null, error, false);
     }
 
     // ---------- starting a run ----------
@@ -337,7 +341,7 @@ class OrchestratorTest {
         assertEquals(StepStatus.RUNNING, status("b"), "running steps aren't interrupted");
 
         dispatched.clear();
-        orchestrator.completeStep("exn_1", step("b").getId(), null, Map.of("late", true), null);
+        orchestrator.completeStep("exn_1", step("b").getId(), null, Map.of("late", true), null, false);
 
         assertEquals(StepStatus.SUCCEEDED, status("b"));
         assertEquals(StepStatus.CANCELLED, status("c"));
@@ -353,7 +357,7 @@ class OrchestratorTest {
         orchestrator.onRunStarted("exn_1");
         runStep("a", Map.of("first", true));
 
-        orchestrator.completeStep("exn_1", step("a").getId(), null, Map.of("second", true), null);
+        orchestrator.completeStep("exn_1", step("a").getId(), null, Map.of("second", true), null, false);
 
         assertEquals(Map.of("first", true), step("a").getOutput());
         assertEquals(1, step("c").getPendingDeps(), "c must only be decremented once for a");
@@ -364,7 +368,7 @@ class OrchestratorTest {
         givenRun(DIAMOND);
         orchestrator.onRunStarted("exn_1");
 
-        orchestrator.completeStep("exn_1", step("a").getId(), null, Map.of(), null); // a is READY, not RUNNING
+        orchestrator.completeStep("exn_1", step("a").getId(), null, Map.of(), null, false); // a is READY, not RUNNING
 
         assertEquals(StepStatus.READY, status("a"));
         assertEquals(2, step("c").getPendingDeps());
@@ -376,12 +380,147 @@ class OrchestratorTest {
         orchestrator.onRunStarted("exn_1");
 
         step("a").setStatus(StepStatus.RUNNING);
-        orchestrator.completeStep("exn_1", step("a").getId(), Map.of("to", "x@y.z"), Map.of("ok", true), null);
+        orchestrator.completeStep("exn_1", step("a").getId(), Map.of("to", "x@y.z"), Map.of("ok", true), null, false);
         assertEquals(Map.of("to", "x@y.z"), step("a").getInput());
 
         step("b").setStatus(StepStatus.RUNNING);
-        orchestrator.completeStep("exn_1", step("b").getId(), Map.of("url", "http://bad"), null, "HTTP 500");
+        orchestrator.completeStep("exn_1", step("b").getId(), Map.of("url", "http://bad"), null, "HTTP 500", false);
         assertEquals(Map.of("url", "http://bad"), step("b").getInput());
         assertEquals("HTTP 500", step("b").getError());
+    }
+
+    // ---------- retries ----------
+
+    // A worker attempt: claim (READY -> RUNNING, attempt+1), then report a result.
+    private void attempt(String nodeId, Map<String, Object> output, String error, boolean retryable) {
+        StepRun s = step(nodeId);
+        assertEquals(StepStatus.READY, s.getStatus(), nodeId + " should be READY before an attempt");
+        s.setStatus(StepStatus.RUNNING);
+        s.setAttempt(s.getAttempt() + 1);
+        orchestrator.completeStep("exn_1", s.getId(), Map.of(), output, error, retryable);
+    }
+
+    // What RetryScheduler does once the wait is over.
+    private void releaseRetry(String nodeId) {
+        StepRun s = step(nodeId);
+        assertEquals(StepStatus.RETRY_WAIT, s.getStatus());
+        s.setStatus(StepStatus.READY);
+        s.setNextAttemptAt(null);
+    }
+
+    @Test
+    void temporaryFailureWaitsToRetryWithoutFailingTheRun() throws Exception {
+        givenRun(DIAMOND);
+        orchestrator.onRunStarted("exn_1");
+        long before = System.currentTimeMillis();
+
+        attempt("a", null, "HTTP 503", true);
+
+        assertEquals(StepStatus.RETRY_WAIT, status("a"));
+        assertEquals("HTTP 503", step("a").getError());
+        long wait = step("a").getNextAttemptAt() - before;
+        assertTrue(wait >= 1000 && wait < 1500, "first retry waits the base delay, was " + wait + "ms");
+        assertEquals("RUNNING", run.getStatus());
+        assertEquals(StepStatus.READY, status("b"), "siblings are untouched");
+        assertEquals(2, step("c").getPendingDeps(), "children still waiting on a");
+    }
+
+    @Test
+    void backoffDoublesBetweenAttempts() throws Exception {
+        givenRun(DIAMOND);
+        orchestrator.onRunStarted("exn_1");
+
+        attempt("a", null, "HTTP 503", true);
+        releaseRetry("a");
+        long before = System.currentTimeMillis();
+        attempt("a", null, "HTTP 503", true);
+
+        long wait = step("a").getNextAttemptAt() - before;
+        assertTrue(wait >= 2000 && wait < 2500, "second retry waits 2x base, was " + wait + "ms");
+    }
+
+    @Test
+    void successOnRetryClearsTheErrorAndContinuesTheRun() throws Exception {
+        givenRun(DIAMOND);
+        orchestrator.onRunStarted("exn_1");
+        runStep("b", Map.of());
+
+        attempt("a", null, "HTTP 503", true);
+        releaseRetry("a");
+        attempt("a", Map.of("ok", true), null, false);
+
+        assertEquals(StepStatus.SUCCEEDED, status("a"));
+        assertNull(step("a").getError());
+        assertNull(step("a").getNextAttemptAt());
+        assertEquals(2, step("a").getAttempt());
+        assertEquals(StepStatus.READY, status("c"));
+    }
+
+    @Test
+    void outOfAttemptsFailsTheRunAndSaysHowManyAttempts() throws Exception {
+        givenRun(DIAMOND);
+        orchestrator.onRunStarted("exn_1");
+
+        attempt("a", null, "HTTP 503", true);
+        releaseRetry("a");
+        attempt("a", null, "HTTP 503", true);
+        releaseRetry("a");
+        attempt("a", null, "HTTP 503", true); // 3rd of 3
+
+        assertEquals(StepStatus.FAILED, status("a"));
+        assertEquals("FAILED", run.getStatus());
+        assertTrue(String.valueOf(run.getMetadata().get("error")).contains("after 3 attempts"),
+                String.valueOf(run.getMetadata().get("error")));
+        assertEquals(StepStatus.CANCELLED, status("c"));
+    }
+
+    @Test
+    void permanentFailureFailsImmediatelyEvenWithAttemptsLeft() throws Exception {
+        givenRun(DIAMOND);
+        orchestrator.onRunStarted("exn_1");
+
+        attempt("a", null, "HTTP 404", false);
+
+        assertEquals(StepStatus.FAILED, status("a"));
+        assertNull(step("a").getNextAttemptAt());
+        assertEquals("FAILED", run.getStatus());
+    }
+
+    @Test
+    void runFailureCancelsStepsWaitingToRetry() throws Exception {
+        givenRun(DIAMOND);
+        orchestrator.onRunStarted("exn_1");
+        attempt("a", null, "HTTP 503", true);
+        assertEquals(StepStatus.RETRY_WAIT, status("a"));
+
+        attempt("b", null, "HTTP 404", false); // permanent -> run fails
+
+        assertEquals(StepStatus.CANCELLED, status("a"));
+        assertNull(step("a").getNextAttemptAt());
+        assertEquals("FAILED", run.getStatus());
+    }
+
+    @Test
+    void temporaryFailureAfterRunAlreadyFailedDoesNotWait() throws Exception {
+        givenRun(DIAMOND);
+        orchestrator.onRunStarted("exn_1");
+        step("b").setStatus(StepStatus.RUNNING);
+        step("b").setAttempt(1);
+        attempt("a", null, "HTTP 404", false); // run fails while b is running
+
+        orchestrator.completeStep("exn_1", step("b").getId(), Map.of(), null, "HTTP 503", true);
+
+        assertEquals(StepStatus.FAILED, status("b"), "no point retrying for a run that already failed");
+    }
+
+    @Test
+    void runIsNotDoneWhileAStepWaitsToRetry() throws Exception {
+        givenRun(graph(List.of(node("t", "trigger"), node("a", "action")), List.of(edge("t", "a"))));
+        orchestrator.onRunStarted("exn_1");
+
+        attempt("a", null, "timeout", true);
+
+        assertEquals("RUNNING", run.getStatus());
+        assertNull(run.getEndTimestamp());
     }
 }

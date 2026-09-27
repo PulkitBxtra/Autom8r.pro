@@ -29,7 +29,8 @@ public class StepResultConsumer {
         StepResultMessage result = jsonMapper.readValue(payload, StepResultMessage.class);
         // completeStep commits before returning, so we only ack once the result is saved.
         // Redelivered duplicates are no-ops: the step is no longer RUNNING.
-        orchestrator.completeStep(result.runId(), result.stepRunId(), result.input(), result.output(), result.error());
+        orchestrator.completeStep(result.runId(), result.stepRunId(), result.input(), result.output(),
+                result.error(), result.retryable());
         ack.acknowledge();
     }
 }
