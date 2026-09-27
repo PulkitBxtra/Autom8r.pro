@@ -8,6 +8,8 @@ import org.hibernate.type.SqlTypes;
 import java.util.Map;
 
 @Entity
+// Run history lists a workflow's runs newest first.
+@Table(indexes = @Index(name = "idx_execution_run_workflow_start", columnList = "workflowId, startTimestamp"))
 public class ExecutionRun {
 
     @PrePersist
