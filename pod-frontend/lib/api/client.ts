@@ -1,5 +1,6 @@
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8083";
 const WEBHOOKS_URL = process.env.NEXT_PUBLIC_WEBHOOKS_URL ?? "http://localhost:8080";
+const CONNECTOR_URL = process.env.NEXT_PUBLIC_CONNECTOR_URL ?? "http://localhost:8084";
 
 export class ApiError extends Error {
   status: number;
@@ -22,7 +23,7 @@ function extractErrorMessage(data: unknown): string | null {
   return null;
 }
 
-type Base = "backend" | "webhooks";
+type Base = "backend" | "webhooks" | "connector";
 
 async function request<T>(
   base: Base,
@@ -30,7 +31,7 @@ async function request<T>(
   options: RequestInit & { token?: string | null } = {}
 ): Promise<T> {
   const { token, headers, ...rest } = options;
-  const baseUrl = base === "backend" ? BACKEND_URL : WEBHOOKS_URL;
+  const baseUrl = base === "backend" ? BACKEND_URL : base === "connector" ? CONNECTOR_URL : WEBHOOKS_URL;
 
   const res = await fetch(`${baseUrl}${path}`, {
     ...rest,
@@ -81,4 +82,24 @@ export const webhooks = {
       body: body ? JSON.stringify(body) : undefined,
       token,
     }),
+};
+
+// pod-connector: app connections (credentials are sent in, never read back).
+export const connector = {
+  get: <T>(path: string, token?: string | null) =>
+    request<T>("connector", path, { method: "GET", token }),
+  post: <T>(path: string, body?: unknown, token?: string | null) =>
+    request<T>("connector", path, {
+      method: "POST",
+      body: body ? JSON.stringify(body) : undefined,
+      token,
+    }),
+  put: <T>(path: string, body?: unknown, token?: string | null) =>
+    request<T>("connector", path, {
+      method: "PUT",
+      body: body ? JSON.stringify(body) : undefined,
+      token,
+    }),
+  delete: <T>(path: string, token?: string | null) =>
+    request<T>("connector", path, { method: "DELETE", token }),
 };

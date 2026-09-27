@@ -9,7 +9,7 @@ import { Logo } from "./logo";
 const NAV = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutGrid },
   { href: "/workflows", label: "Workflows", icon: Workflow },
-  { href: "/apps", label: "Apps", icon: Plug },
+  { href: "/connections", label: "Connections", icon: Plug },
 ];
 
 export function Sidebar() {

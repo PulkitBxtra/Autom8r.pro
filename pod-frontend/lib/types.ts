@@ -112,6 +112,45 @@ export type RunDetail = {
   steps: StepDetail[];
 };
 
+// One credential input on an app's connection form. secret inputs are masked
+// and never shown again after saving.
+export type CredentialField = {
+  key: string;
+  label: string;
+  secret: boolean;
+  required: boolean;
+  placeholder: string | null;
+  help: string | null;
+};
+
+// An app that can be connected, and how (mirrors pod-connector's ConnectorView).
+// tokenFields is null for OAuth-only apps.
+export type ConnectorInfo = {
+  appId: string;
+  name: string;
+  description: string;
+  tokenFields: CredentialField[] | null;
+  docsUrl: string | null;
+  oauthProvider: string | null;
+  oauthAvailable: boolean;
+};
+
+export type ConnectionStatus = "ACTIVE" | "NEEDS_REAUTH";
+
+// A saved connection. Never carries the credentials themselves.
+export type AppConnection = {
+  id: string;
+  appId: string;
+  appName: string;
+  label: string | null;
+  authType: "TOKEN" | "OAUTH";
+  status: ConnectionStatus;
+  lastError: string | null;
+  createdAt: number | null;
+  updatedAt: number | null;
+  lastUsedAt: number | null;
+};
+
 export type AuthUser = {
   id: string;
   email: string;
