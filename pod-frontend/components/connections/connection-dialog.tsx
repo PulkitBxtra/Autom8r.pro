@@ -1,14 +1,20 @@
 "use client";
 
-import { useState } from "react";
-import { ArrowLeft, ExternalLink, Eye, EyeOff, Search } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { ArrowLeft, ExternalLink, Eye, EyeOff, LogIn, Search } from "lucide-react";
 import { Dialog } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/lib/auth-context";
-import { createConnection, reconnectConnection } from "@/lib/api/connections";
+import {
+  createConnection,
+  OAUTH_CHANNEL,
+  reconnectConnection,
+  startOAuth,
+  type OAuthResult,
+} from "@/lib/api/connections";
 import { ApiError } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
 import type { AppConnection, ConnectorInfo } from "@/lib/types";
@@ -26,7 +32,7 @@ export function ConnectionDialog({
   connectors: ConnectorInfo[];
   reconnect?: AppConnection | null;
   onClose: () => void;
-  onSaved: (connection: AppConnection) => void;
+  onSaved: () => void;
 }) {
   const reconnectApp = reconnect ? connectors.find((c) => c.appId === reconnect.appId) ?? null : null;
   const [picked, setPicked] = useState<ConnectorInfo | null>(reconnectApp);
@@ -122,7 +128,7 @@ function CredentialsForm({
   app: ConnectorInfo;
   reconnect: AppConnection | null;
   onBack?: () => void;
-  onSaved: (connection: AppConnection) => void;
+  onSaved: () => void;
 }) {
   const { token } = useAuth();
   const [values, setValues] = useState<Record<string, string>>({});
@@ -132,6 +138,13 @@ function CredentialsForm({
 
   const fields = app.tokenFields ?? [];
   const missing = fields.some((f) => f.required && !values[f.key]?.trim());
+  const providerName = app.oauthProviderName ?? "OAuth";
+  const oauth = useOAuthPopup({
+    app,
+    connectionId: reconnect?.id,
+    onSuccess: onSaved,
+    onError: setError,
+  });
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -139,10 +152,12 @@ function CredentialsForm({
     setSaving(true);
     setError(null);
     try {
-      const saved = reconnect
-        ? await reconnectConnection(reconnect.id, values, token)
-        : await createConnection(app.appId, values, token);
-      onSaved(saved);
+      if (reconnect) {
+        await reconnectConnection(reconnect.id, values, token);
+      } else {
+        await createConnection(app.appId, values, token);
+      }
+      onSaved();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : `Couldn't connect ${app.name}`);
     } finally {
@@ -167,11 +182,39 @@ function CredentialsForm({
         <p className="text-sm text-text-muted">{app.description}</p>
       </div>
 
+      {app.oauthAvailable && (
+        <div className="mb-5">
+          <Button type="button" className="w-full" loading={oauth.waiting} onClick={oauth.open}>
+            {!oauth.waiting && <LogIn className="size-4" />}
+            {oauth.waiting ? `Waiting for ${providerName}…` : `Connect with ${providerName}`}
+          </Button>
+          {oauth.waiting && (
+            <p className="mt-2 text-center text-xs text-text-muted">
+              Finish signing in in the pop-up window.
+            </p>
+          )}
+          {fields.length > 0 && (
+            <div className="mt-5 flex items-center gap-3 text-xs text-text-faint">
+              <span className="h-px flex-1 bg-border" />
+              or use a token
+              <span className="h-px flex-1 bg-border" />
+            </div>
+          )}
+        </div>
+      )}
+
       {fields.length === 0 ? (
-        <p className="text-sm text-text-muted">
-          {app.name} connects by signing in with {app.oauthProvider ?? "OAuth"}, which isn&apos;t
-          available yet.
-        </p>
+        app.oauthAvailable ? (
+          error && (
+            <p role="alert" className="rounded-lg border border-red-500/30 bg-red-500/5 px-3 py-2.5 text-sm text-red-300">
+              {error}
+            </p>
+          )
+        ) : (
+          <p className="text-sm text-text-muted">
+            {app.name} connects by signing in with {providerName}, which isn&apos;t set up on this server yet.
+          </p>
+        )
       ) : (
         <div className="space-y-4">
           {fields.map((f, i) => (
@@ -238,6 +281,84 @@ function CredentialsForm({
       )}
     </form>
   );
+}
+
+// Runs "Connect with <provider>": opens a pop-up, sends it to the provider's sign-in page, and
+// waits for /oauth-complete to report back (BroadcastChannel, or postMessage via the opener).
+function useOAuthPopup({
+  app,
+  connectionId,
+  onSuccess,
+  onError,
+}: {
+  app: ConnectorInfo;
+  connectionId?: string;
+  onSuccess: () => void;
+  onError: (message: string | null) => void;
+}) {
+  const { token } = useAuth();
+  const [waiting, setWaiting] = useState(false);
+  const popupRef = useRef<Window | null>(null);
+  // Latest callbacks, without re-subscribing the listeners on every render.
+  const handlers = useRef({ onSuccess, onError });
+  useEffect(() => {
+    handlers.current = { onSuccess, onError };
+  });
+
+  useEffect(() => {
+    if (!waiting) return;
+    const handle = (data: unknown) => {
+      const result = data as OAuthResult | null;
+      if (!result || result.type !== "autom8r-oauth" || (result.appId && result.appId !== app.appId)) return;
+      setWaiting(false);
+      if (result.status === "success") {
+        handlers.current.onSuccess();
+      } else {
+        handlers.current.onError(result.message ?? "Sign-in didn't complete.");
+      }
+    };
+    const channel = new BroadcastChannel(OAUTH_CHANNEL);
+    channel.onmessage = (e) => handle(e.data);
+    const onMessage = (e: MessageEvent) => {
+      if (e.origin === window.location.origin) handle(e.data);
+    };
+    window.addEventListener("message", onMessage);
+    // The user closed the pop-up without finishing: stop waiting.
+    const closedCheck = setInterval(() => {
+      if (popupRef.current?.closed) {
+        setWaiting(false);
+      }
+    }, 700);
+    return () => {
+      channel.close();
+      window.removeEventListener("message", onMessage);
+      clearInterval(closedCheck);
+    };
+  }, [waiting, app.appId]);
+
+  async function open() {
+    if (!token) return;
+    handlers.current.onError(null);
+    // Open synchronously in the click so pop-up blockers allow it; point it at the provider once
+    // we have the URL.
+    const popup = window.open("", "autom8r-oauth", "width=600,height=760");
+    if (!popup) {
+      handlers.current.onError("Your browser blocked the sign-in pop-up. Allow pop-ups for this site and try again.");
+      return;
+    }
+    popupRef.current = popup;
+    setWaiting(true);
+    try {
+      const { authorizeUrl } = await startOAuth(app.appId, token, connectionId);
+      popup.location.href = authorizeUrl;
+    } catch (err) {
+      popup.close();
+      setWaiting(false);
+      handlers.current.onError(err instanceof ApiError ? err.message : "Couldn't start the sign-in");
+    }
+  }
+
+  return { waiting, open };
 }
 
 export function AppIcon({ name, className }: { name: string; className?: string }) {

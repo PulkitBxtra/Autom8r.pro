@@ -41,6 +41,50 @@ public class ProviderHttp {
                 : HttpRequest.BodyPublishers.ofString(formBody)).build());
     }
 
+    // Status + parsed body of an OAuth token endpoint call. Token endpoints report problems like
+    // invalid_grant in the body (with 400, or GitHub-style with 200), so callers inspect it
+    // themselves instead of getting a generic "rejected" message.
+    public record TokenResponse(int status, Map<String, Object> body) {
+
+        public String error() {
+            Object e = body.get("error");
+            return e == null ? null : String.valueOf(e);
+        }
+    }
+
+    // application/x-www-form-urlencoded POST. Only network failures throw.
+    public TokenResponse postForm(String provider, String url, Map<String, String> form) {
+        StringBuilder encoded = new StringBuilder();
+        form.forEach((k, v) -> {
+            if (v == null) return;
+            if (!encoded.isEmpty()) encoded.append('&');
+            encoded.append(java.net.URLEncoder.encode(k, java.nio.charset.StandardCharsets.UTF_8))
+                    .append('=')
+                    .append(java.net.URLEncoder.encode(v, java.nio.charset.StandardCharsets.UTF_8));
+        });
+        HttpRequest request = request(url, Map.of("Content-Type", "application/x-www-form-urlencoded"))
+                .POST(HttpRequest.BodyPublishers.ofString(encoded.toString())).build();
+        HttpResponse<String> response;
+        try {
+            response = client.send(request, HttpResponse.BodyHandlers.ofString());
+        } catch (Exception e) {
+            if (e instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+            }
+            throw new ConnectionVerificationException("Couldn't reach " + provider + " ("
+                    + e.getClass().getSimpleName() + "). Try again in a moment.");
+        }
+        Map<String, Object> body;
+        try {
+            String raw = response.body();
+            body = raw == null || raw.isBlank() ? Map.of()
+                    : jsonMapper.readValue(raw, new TypeReference<Map<String, Object>>() {});
+        } catch (Exception e) {
+            body = Map.of("error", "non_json_response");
+        }
+        return new TokenResponse(response.statusCode(), body);
+    }
+
     private HttpRequest.Builder request(String url, Map<String, String> headers) {
         HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(url)).timeout(TIMEOUT)
                 .header("Accept", "application/json")

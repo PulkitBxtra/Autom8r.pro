@@ -132,6 +132,7 @@ export type ConnectorInfo = {
   tokenFields: CredentialField[] | null;
   docsUrl: string | null;
   oauthProvider: string | null;
+  oauthProviderName: string | null;
   oauthAvailable: boolean;
 };
 

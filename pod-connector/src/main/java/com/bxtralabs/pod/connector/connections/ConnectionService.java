@@ -18,11 +18,14 @@ public class ConnectionService {
 
     private final ConnectionRepository repository;
     private final ConnectorRegistry registry;
+    private final OAuthProviders oauthProviders;
     private final CredentialCipher cipher;
 
-    public ConnectionService(ConnectionRepository repository, ConnectorRegistry registry, CredentialCipher cipher) {
+    public ConnectionService(ConnectionRepository repository, ConnectorRegistry registry,
+                             OAuthProviders oauthProviders, CredentialCipher cipher) {
         this.repository = repository;
         this.registry = registry;
+        this.oauthProviders = oauthProviders;
         this.cipher = cipher;
     }
 
@@ -31,10 +34,12 @@ public class ConnectionService {
                                  String status, String lastError, Long createdAt, Long updatedAt, Long lastUsedAt) {
     }
 
-    // What the UI needs to render "New connection" for an app.
-    // oauthAvailable stays false until OAuth providers are configured (A8).
+    // What the UI needs to render "New connection" for an app. oauthAvailable: the app supports
+    // OAuth and its provider's client id/secret are configured on this server.
+    // oauthProviderName: for the "Connect with GitHub" button.
     public record ConnectorView(String appId, String name, String description, List<CredentialField> tokenFields,
-                                String docsUrl, String oauthProvider, boolean oauthAvailable) {
+                                String docsUrl, String oauthProvider, String oauthProviderName,
+                                boolean oauthAvailable) {
     }
 
     public List<ConnectorView> connectors() {
@@ -43,7 +48,8 @@ public class ConnectionService {
                 c.token() == null ? null : c.token().fields(),
                 c.token() == null ? null : c.token().docsUrl(),
                 c.oauthProvider(),
-                false)).toList();
+                oauthProviders.find(c.oauthProvider()).map(OAuthProviders.Provider::displayName).orElse(null),
+                oauthProviders.isAvailable(c.oauthProvider()))).toList();
     }
 
     public List<ConnectionView> list(String userId, String appId) {
@@ -84,6 +90,28 @@ public class ConnectionService {
         connection.setLastError(null);
         connection.setScopes(null);
         connection.setExpiresAt(null);
+        connection.setRefreshFailures(0);
+        connection.setNextRefreshAt(null);
+        return view(repository.save(connection));
+    }
+
+    // Saves a new OAuth connection, or refreshes an existing one when reconnecting (same id).
+    public ConnectionView saveOAuth(String userId, String appId, String existingConnectionId, String label,
+                                    Map<String, String> tokens, String scopes, Long expiresAt) {
+        requireConfigured();
+        Connection connection = existingConnectionId == null ? new Connection() : owned(userId, existingConnectionId);
+        connection.setUserId(userId);
+        connection.setAppId(appId);
+        connection.setAuthType(Connection.AUTH_OAUTH);
+        connection.setStatus(Connection.STATUS_ACTIVE);
+        connection.setLabel(label);
+        connection.setCredentials(cipher.encrypt(tokens));
+        connection.setScopes(scopes);
+        connection.setExpiresAt(expiresAt);
+        connection.setLastError(null);
+        connection.setRefreshFailures(0);
+        connection.setNextRefreshAt(null);
+        connection.setLastRefreshedAt(null);
         return view(repository.save(connection));
     }
 

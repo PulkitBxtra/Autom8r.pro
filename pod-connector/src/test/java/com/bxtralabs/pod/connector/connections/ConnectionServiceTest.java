@@ -48,7 +48,7 @@ class ConnectionServiceTest {
                             return "@" + creds.get("token").replace("ghp_", "");
                         }), "github"),
                 new Connector("app_gmail", "Gmail", "Email", null, "google")));
-        service = new ConnectionService(repo, registry, cipher);
+        service = new ConnectionService(repo, registry, new OAuthProviders("https://github.com", "", "", "repo", "", ""), cipher);
 
         long[] clock = {1000};
         when(repo.save(any(Connection.class))).thenAnswer(inv -> {
@@ -77,7 +77,8 @@ class ConnectionServiceTest {
         assertEquals("token", views.get(0).tokenFields().get(0).key());
         assertEquals("https://docs", views.get(0).docsUrl());
         assertNull(views.get(1).tokenFields(), "Gmail is OAuth-only");
-        assertFalse(views.get(0).oauthAvailable(), "no OAuth until A8");
+        assertFalse(views.get(0).oauthAvailable(), "GitHub OAuth not configured in this test");
+        assertEquals("GitHub", views.get(0).oauthProviderName());
     }
 
     // ---------- create ----------
@@ -131,7 +132,7 @@ class ConnectionServiceTest {
 
     @Test
     void withoutAKeyNothingIsCheckedOrSaved() {
-        ConnectionService unconfigured = new ConnectionService(repo, registry, new CredentialCipher("", JSON));
+        ConnectionService unconfigured = new ConnectionService(repo, registry, new OAuthProviders("https://github.com", "", "", "repo", "", ""), new CredentialCipher("", JSON));
         assertThrows(ConnectionsNotConfiguredException.class,
                 () -> unconfigured.createWithToken("usr_1", "app_github", Map.of("token", "ghp_a")));
         assertNull(checked.get(), "fails before a provider round trip");

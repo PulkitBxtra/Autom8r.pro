@@ -7,7 +7,10 @@ import jakarta.persistence.*;
 // credentials holds CredentialCipher output and never leaves this pod; every other field is
 // safe to show in the UI. Workflow steps will reference a connection by id, never the secret.
 @Entity
-@Table(indexes = @Index(name = "idx_connection_user_app", columnList = "userId, appId"))
+@Table(indexes = {
+        @Index(name = "idx_connection_user_app", columnList = "userId, appId"),
+        // TokenRefreshScheduler looks for active connections by expiry.
+        @Index(name = "idx_connection_status_expires", columnList = "status, expiresAt")})
 public class Connection {
 
     public static final String AUTH_TOKEN = "TOKEN";
@@ -54,8 +57,13 @@ public class Connection {
     // Encrypted ("v1:..."), see CredentialCipher.
     @Column(columnDefinition = "text", nullable = false)
     private String credentials;
-    // Access token expiry for OAuth providers that issue expiring tokens.
+    // Access token expiry for OAuth providers that issue expiring tokens. A plain column (not
+    // inside credentials) so the refresh job can find expiring tokens without decrypting.
     private Long expiresAt;
+    private Long lastRefreshedAt;
+    // Consecutive temporary refresh failures, and when to try again (backs off).
+    private Integer refreshFailures;
+    private Long nextRefreshAt;
     @Column(columnDefinition = "text")
     private String lastError;
     private Long createdAt;
@@ -135,6 +143,30 @@ public class Connection {
 
     public void setExpiresAt(Long expiresAt) {
         this.expiresAt = expiresAt;
+    }
+
+    public Long getLastRefreshedAt() {
+        return lastRefreshedAt;
+    }
+
+    public void setLastRefreshedAt(Long lastRefreshedAt) {
+        this.lastRefreshedAt = lastRefreshedAt;
+    }
+
+    public int getRefreshFailures() {
+        return refreshFailures == null ? 0 : refreshFailures;
+    }
+
+    public void setRefreshFailures(Integer refreshFailures) {
+        this.refreshFailures = refreshFailures;
+    }
+
+    public Long getNextRefreshAt() {
+        return nextRefreshAt;
+    }
+
+    public void setNextRefreshAt(Long nextRefreshAt) {
+        this.nextRefreshAt = nextRefreshAt;
     }
 
     public String getLastError() {

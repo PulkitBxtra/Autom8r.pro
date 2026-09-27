@@ -24,3 +24,25 @@ export function reconnectConnection(id: string, credentials: Record<string, stri
 export function deleteConnection(id: string, token: string) {
   return connector.delete<null>(`/connection/${id}`, token);
 }
+
+// Returns the provider's sign-in URL to open in a popup. connectionId: reconnect that one.
+export function startOAuth(appId: string, token: string, connectionId?: string) {
+  return connector.post<{ authorizeUrl: string }>(
+    `/oauth/${encodeURIComponent(appId)}/start`,
+    connectionId ? { connectionId } : {},
+    token
+  );
+}
+
+// What /oauth-complete reports back to the page that opened the sign-in popup.
+export type OAuthResult = {
+  type: "autom8r-oauth";
+  status: "success" | "error";
+  connectionId: string | null;
+  appId: string | null;
+  message: string | null;
+};
+
+// Same-origin channel between the popup and the page. Used alongside window.opener because
+// providers often send Cross-Origin-Opener-Policy headers that null out window.opener.
+export const OAUTH_CHANNEL = "autom8r-oauth";
