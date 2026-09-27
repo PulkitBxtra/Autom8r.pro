@@ -1,4 +1,4 @@
-package com.bxtralabs.podconnector;
+package com.bxtralabs.pod.connector;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;

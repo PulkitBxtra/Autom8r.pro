@@ -1,4 +1,4 @@
-package com.bxtralabs.podconnector;
+package com.bxtralabs.pod.connector;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
