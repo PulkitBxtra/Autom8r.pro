@@ -3,16 +3,17 @@ package com.bxtralabs.pod.processor.service;
 import com.bxtralabs.pod.processor.model.ExecutionRun;
 import com.bxtralabs.pod.processor.model.StepRun;
 import com.bxtralabs.pod.processor.model.StepStatus;
+import com.bxtralabs.pod.processor.model.StepTaskOutbox;
 import com.bxtralabs.pod.processor.model.WorkflowVersion;
 import com.bxtralabs.pod.processor.model.graph.GraphEdge;
 import com.bxtralabs.pod.processor.model.graph.GraphNode;
 import com.bxtralabs.pod.processor.model.graph.WorkflowGraph;
 import com.bxtralabs.pod.processor.repository.ExecutionRunRepository;
 import com.bxtralabs.pod.processor.repository.StepRunRepository;
+import com.bxtralabs.pod.processor.repository.StepTaskOutboxRepository;
 import com.bxtralabs.pod.processor.repository.WorkflowVersionRepository;
 import com.bxtralabs.pod.processor.service.template.TemplateResolver;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -43,7 +44,7 @@ public class Orchestrator {
     private ConditionEvaluator conditionEvaluator;
 
     @Autowired
-    private ApplicationEventPublisher events;
+    private StepTaskOutboxRepository stepTaskOutboxRepository;
 
     // Creates one StepRun per node of the run's pinned graph, completes the trigger step,
     // and releases whatever the trigger unblocks.
@@ -210,8 +211,11 @@ public class Orchestrator {
             executionRunRepository.save(run);
         }
 
+        // Same transaction as the READY status, so dispatch can't be lost or run ahead of it.
         if (!ready.isEmpty()) {
-            events.publishEvent(new StepsReadyEvent(run.getId(), ready.stream().map(StepRun::getId).toList()));
+            stepTaskOutboxRepository.saveAll(ready.stream()
+                    .map(s -> new StepTaskOutbox(run.getId(), s.getId()))
+                    .toList());
         }
     }
 

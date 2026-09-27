@@ -3,12 +3,14 @@ package com.bxtralabs.pod.processor.service;
 import com.bxtralabs.pod.processor.model.ExecutionRun;
 import com.bxtralabs.pod.processor.model.StepRun;
 import com.bxtralabs.pod.processor.model.StepStatus;
+import com.bxtralabs.pod.processor.model.StepTaskOutbox;
 import com.bxtralabs.pod.processor.model.WorkflowVersion;
 import com.bxtralabs.pod.processor.model.graph.GraphEdge;
 import com.bxtralabs.pod.processor.model.graph.GraphNode;
 import com.bxtralabs.pod.processor.model.graph.WorkflowGraph;
 import com.bxtralabs.pod.processor.repository.ExecutionRunRepository;
 import com.bxtralabs.pod.processor.repository.StepRunRepository;
+import com.bxtralabs.pod.processor.repository.StepTaskOutboxRepository;
 import com.bxtralabs.pod.processor.repository.WorkflowVersionRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -18,7 +20,6 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
-import org.springframework.context.ApplicationEventPublisher;
 
 import java.lang.reflect.Field;
 import java.util.*;
@@ -42,13 +43,13 @@ class OrchestratorTest {
     @Mock
     private ConditionEvaluator conditionEvaluator;
     @Mock
-    private ApplicationEventPublisher events;
+    private StepTaskOutboxRepository stepTaskOutboxRepository;
     @InjectMocks
     private Orchestrator orchestrator;
 
     // In-memory step table, keyed by StepRun id.
     private final Map<String, StepRun> db = new LinkedHashMap<>();
-    // Step ids handed to the dispatcher, in order.
+    // Step ids queued in step_task_outbox for dispatch, in order.
     private final List<String> dispatched = new ArrayList<>();
     private ExecutionRun run;
     private int nextId;
@@ -87,10 +88,16 @@ class OrchestratorTest {
                 db.values().stream().filter(s -> s.getRunId().equals(inv.getArgument(0))).toList());
         when(stepRunRepository.existsByRunId(anyString())).thenAnswer(inv ->
                 db.values().stream().anyMatch(s -> s.getRunId().equals(inv.getArgument(0))));
-        doAnswer(inv -> {
-            dispatched.addAll(((StepsReadyEvent) inv.getArgument(0)).stepRunIds());
-            return null;
-        }).when(events).publishEvent(any(Object.class));
+        when(stepTaskOutboxRepository.saveAll(anyIterable())).thenAnswer(inv -> {
+            Iterable<StepTaskOutbox> rows = inv.getArgument(0);
+            List<StepTaskOutbox> saved = new ArrayList<>();
+            rows.forEach(r -> {
+                assertEquals("exn_1", r.getRunId());
+                dispatched.add(r.getStepRunId());
+                saved.add(r);
+            });
+            return saved;
+        });
         when(conditionEvaluator.isTaken(any(), any())).thenReturn(true);
     }
 
