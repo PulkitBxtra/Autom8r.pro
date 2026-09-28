@@ -18,7 +18,7 @@
       "id": "app_http",
       "name": "HTTP",
       "description": "Call any HTTP API",
-      "connectionOptional": true,
+      "connection": "optional",
       "triggers": [],
       "actions": [
         {
@@ -92,6 +92,7 @@
       "id": "app_gmail",
       "name": "Gmail",
       "description": "Send and receive email",
+      "connection": "required",
       "triggers": [
         {
           "id": "trg_gmail_new_email",
@@ -150,6 +151,7 @@
       "id": "app_slack",
       "name": "Slack",
       "description": "Team messaging",
+      "connection": "required",
       "triggers": [
         {
           "id": "trg_slack_new_message",
@@ -195,6 +197,7 @@
       "id": "app_sheets",
       "name": "Google Sheets",
       "description": "Spreadsheets",
+      "connection": "required",
       "triggers": [
         {
           "id": "trg_sheets_new_row",
@@ -251,6 +254,7 @@
       "id": "app_github",
       "name": "GitHub",
       "description": "Repositories, issues and pull requests",
+      "connection": "required",
       "triggers": [
         {
           "id": "trg_github_new_issue",
@@ -300,6 +304,7 @@
       "id": "app_notion",
       "name": "Notion",
       "description": "Docs and databases",
+      "connection": "required",
       "triggers": [
         {
           "id": "trg_notion_new_page",
@@ -349,6 +354,7 @@
       "id": "app_stripe",
       "name": "Stripe",
       "description": "Payments",
+      "connection": "required",
       "triggers": [
         {
           "id": "trg_stripe_new_payment",
@@ -401,6 +407,7 @@
       "id": "app_discord",
       "name": "Discord",
       "description": "Community chat",
+      "connection": "required",
       "triggers": [
         {
           "id": "trg_discord_new_message",
@@ -428,6 +435,7 @@
       "id": "app_trello",
       "name": "Trello",
       "description": "Boards, lists and cards",
+      "connection": "required",
       "triggers": [
         {
           "id": "trg_trello_new_card",

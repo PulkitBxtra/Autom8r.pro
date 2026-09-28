@@ -230,7 +230,9 @@ class WorkflowServiceTest {
     void savedStepsTakeTheirAppNameAndHandlerFromTheCatalog() {
         // A client claiming a GitHub step runs the HTTP handler (or naming it anything) doesn't stick.
         GraphNode sneaky = new GraphNode("a", "action", "Whatever", "act_github_create_issue", "Renamed", "http_request",
-                Map.of("repository", "octo/repo", "title", "Hi", "made_up", "x"), null, null, null, null);
+                Map.of("repository", "octo/repo", "title", "Hi", "made_up", "x"), null, null, "con_1", null);
+        when(connectionViewRepository.findAllById(List.of("con_1")))
+                .thenReturn(List.of(new ConnectionView("con_1", "usr_1", "app_github")));
         workflowService.create("usr_1", "Flow", new WorkflowGraph(List.of(WEBHOOK, sneaky), List.of(new GraphEdge("t", "a", null, null))));
 
         ArgumentCaptor<WorkflowVersion> saved = ArgumentCaptor.forClass(WorkflowVersion.class);
@@ -247,7 +249,7 @@ class WorkflowServiceTest {
     @Test
     void badSettingsAreRejectedBeforeAnythingIsSaved() {
         GraphNode missingTitle = new GraphNode("a", "action", "GitHub", "act_github_create_issue", "Create Issue", null,
-                Map.of("repository", "octo/repo"), null, null, null, null);
+                Map.of("repository", "octo/repo"), null, null, "con_1", null);
         Exception e = assertThrows(IllegalArgumentException.class, () -> workflowService.create("usr_1", "Flow",
                 new WorkflowGraph(List.of(WEBHOOK, missingTitle), List.of(new GraphEdge("t", "a", null, null)))));
         assertEquals("Step \"Create Issue\" needs Title", e.getMessage());

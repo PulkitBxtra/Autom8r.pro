@@ -311,7 +311,7 @@ function AccountSection({
     connectionId
   );
   const [adding, setAdding] = useState(false);
-  const optional = app.connectionOptional;
+  const optional = app.connection === "optional";
 
   if (!connector && !(readOnly && connectionId)) return null;
 

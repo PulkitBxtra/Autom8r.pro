@@ -24,8 +24,9 @@ class CatalogServiceTest {
         assertEquals("http_request", http.handler(), "must match pod-processor's HttpRequestHandler.TYPE");
         assertEquals("app_http", catalog.appOf("act_http_request").orElseThrow().id());
         assertEquals("app_webhook", catalog.appOf("trg_webhook_catch").orElseThrow().id());
-        assertTrue(catalog.appOf("act_http_request").orElseThrow().connectionOptional());
-        assertFalse(catalog.appOf("act_github_comment").orElseThrow().connectionOptional());
+        assertEquals("optional", catalog.appOf("act_http_request").orElseThrow().connection());
+        assertEquals("required", catalog.appOf("act_github_comment").orElseThrow().connection());
+        assertEquals("none", catalog.appOf("act_logic_switch").orElseThrow().connection());
     }
 
     // Saved workflows point at these ids, so they must keep resolving.

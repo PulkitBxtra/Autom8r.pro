@@ -168,7 +168,7 @@ function AppLine({
   let problem: string | null = null;
   if (connector && !loading && !error) {
     if (missing) problem = "Account removed";
-    else if (!connectionId && !app.connectionOptional) problem = "Choose an account";
+    else if (!connectionId && app.connection === "required") problem = "Choose an account";
     else if (chosen?.status === "NEEDS_REAUTH") problem = "Account needs reconnecting";
   }
   if (!problem && needsSetup) problem = "Finish setting up";

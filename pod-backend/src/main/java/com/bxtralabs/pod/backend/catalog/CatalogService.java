@@ -71,6 +71,10 @@ public class CatalogService {
             if (!appIds.add(app.id())) {
                 throw invalid("has app " + app.id() + " twice");
             }
+            if (!Set.of(CatalogApp.CONNECTION_NONE, CatalogApp.CONNECTION_OPTIONAL, CatalogApp.CONNECTION_REQUIRED)
+                    .contains(app.connection())) {
+                throw invalid("has app " + app.id() + " with unknown connection setting " + app.connection());
+            }
             for (CatalogApp.Trigger t : nonNull(app.triggers())) {
                 addItem(app, t.id(), t.name(), t.fields());
                 triggers.put(t.id(), t);

@@ -50,8 +50,9 @@ export type App = {
   id: string;
   name: string;
   description: string | null;
-  // Steps may run without an account even though the app can be connected (HTTP).
-  connectionOptional: boolean;
+  // Whether its steps act through one of the user's connections: required (GitHub...),
+  // optional (HTTP: most APIs need no credential) or none (Webhook, Logic).
+  connection: "required" | "optional" | "none";
   actions: AppAction[];
   triggers: AppTrigger[];
 };

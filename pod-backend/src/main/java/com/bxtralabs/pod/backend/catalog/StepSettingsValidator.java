@@ -110,6 +110,13 @@ public class StepSettingsValidator {
         if (node.appId() != null && !node.appId().equals(app.id())) {
             throw new IllegalArgumentException("Step " + step + " doesn't belong to the app it's set up with");
         }
+        String connectionId = node.connectionId() == null || node.connectionId().isBlank() ? null : node.connectionId();
+        if (connectionId == null && CatalogApp.CONNECTION_REQUIRED.equals(app.connection())) {
+            throw new IllegalArgumentException("Step \"" + itemName + "\" needs a " + app.name() + " account; choose one in the step's setup");
+        }
+        if (CatalogApp.CONNECTION_NONE.equals(app.connection())) {
+            connectionId = null; // nothing to act through
+        }
 
         // From here on, name the step as the catalog does.
         String named = "\"" + itemName + "\"";
@@ -123,7 +130,7 @@ public class StepSettingsValidator {
                 .toList();
 
         return new GraphNode(node.id(), node.kind(), app.name(), node.itemId(), itemName, handler, parameters,
-                node.position(), app.id(), node.connectionId(), specs);
+                node.position(), app.id(), connectionId, specs);
     }
 
     private static IllegalArgumentException unavailable(String step, String what) {

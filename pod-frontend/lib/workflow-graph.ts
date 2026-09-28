@@ -188,7 +188,7 @@ function isConfigured(node: WorkflowNode) {
 export function toWorkflowGraph(
   nodes: WorkflowNode[],
   edges: WorkflowEdge[]
-): { graph: WorkflowGraph } | { error: string; nodeId: string; tab?: "configure" } {
+): { graph: WorkflowGraph } | { error: string; nodeId: string; tab?: "setup" | "configure" } {
   let keptNodes = [...nodes];
   let keptEdges = [...edges];
 
@@ -214,6 +214,17 @@ export function toWorkflowGraph(
           ? "Choose a trigger before saving"
           : "A step in the middle of this workflow has no app selected",
     };
+  }
+
+  // Same rule as pod-backend: an app that needs an account can't be saved without one.
+  for (const n of keptNodes) {
+    if (n.data.app!.connection === "required" && !n.data.connectionId) {
+      return {
+        nodeId: n.id,
+        tab: "setup",
+        error: `"${n.data.item!.name}" needs a ${n.data.app!.name} account; choose one in the step's setup`,
+      };
+    }
   }
 
   for (const n of keptNodes) {
@@ -277,7 +288,7 @@ function resolveNodeItem(node: GraphNode, catalog: Catalog): { app: App; item: A
 }
 
 function unknownApp(id: string, name: string): App {
-  return { id, name, description: null, connectionOptional: false, actions: [], triggers: [] };
+  return { id, name, description: null, connection: "none", actions: [], triggers: [] };
 }
 
 // Workflows saved since versioning carry their real graph (branches, joins,

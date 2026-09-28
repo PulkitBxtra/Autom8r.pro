@@ -25,7 +25,8 @@ class StepSettingsValidatorTest {
             null, null, null, null, null, null);
 
     private GraphNode check(String itemId, Map<String, Object> parameters) {
-        GraphNode node = new GraphNode("a", "action", "x", itemId, null, null, parameters, null, null, null, null);
+        // With an account, so apps that need one get past that check to the one under test.
+        GraphNode node = new GraphNode("a", "action", "x", itemId, null, null, parameters, null, null, "con_test", null);
         return validator.normalize(new WorkflowGraph(List.of(WEBHOOK, node), List.of(new GraphEdge("t", "a", null, null))))
                 .nodes().get(1);
     }
@@ -88,7 +89,7 @@ class StepSettingsValidatorTest {
 
     @Test
     void triggersAreCheckedToo() {
-        GraphNode repoless = new GraphNode("t", "trigger", "GitHub", "trg_github_new_issue", null, null, Map.of(), null, null, null, null);
+        GraphNode repoless = new GraphNode("t", "trigger", "GitHub", "trg_github_new_issue", null, null, Map.of(), null, null, "con_test", null);
         Exception e = assertThrows(IllegalArgumentException.class,
                 () -> validator.normalize(new WorkflowGraph(List.of(repoless), List.of())));
         assertEquals("Step \"New Issue\" needs Repository", e.getMessage());
@@ -178,5 +179,35 @@ class StepSettingsValidatorTest {
         // A new Switch starts with one empty condition: saving it untouched asks for the data to check.
         assertTrue(rejected("act_logic_switch", Map.of("paths", List.of(path("p_a", "Path A", cond("", "equals", "")))))
                 .contains("nothing to check"));
+    }
+
+    // ---- accounts ----
+
+    private GraphNode normalizedWith(String itemId, Map<String, Object> params, String connectionId) {
+        GraphNode node = new GraphNode("a", "action", "x", itemId, null, null, params, null, null, connectionId, null);
+        return validator.normalize(new WorkflowGraph(List.of(WEBHOOK, node), List.of(new GraphEdge("t", "a", null, null))))
+                .nodes().get(1);
+    }
+
+    @Test
+    void appsThatNeedAnAccountCantBeSavedWithoutOne() {
+        Exception e = assertThrows(IllegalArgumentException.class, () -> normalizedWith("act_github_create_issue",
+                Map.of("repository", "o/r", "title", "t"), null));
+        assertEquals("Step \"Create Issue\" needs a GitHub account; choose one in the step's setup", e.getMessage());
+        assertThrows(IllegalArgumentException.class, () -> normalizedWith("act_github_create_issue",
+                Map.of("repository", "o/r", "title", "t"), " "));
+        // A GitHub trigger too.
+        GraphNode trigger = new GraphNode("t", "trigger", "GitHub", "trg_github_new_issue", null, null,
+                Map.of("repository", "o/r"), null, null, null, null);
+        assertThrows(IllegalArgumentException.class, () -> validator.normalize(new WorkflowGraph(List.of(trigger), List.of())));
+    }
+
+    @Test
+    void httpMayHaveAnAccountAndLogicNever() {
+        assertNull(normalizedWith("act_http_request", http(), null).connectionId());
+        assertEquals("con_1", normalizedWith("act_http_request", http(), "con_1").connectionId());
+        Map<String, Object> filter = Map.of("conditions", Map.of("match", "all",
+                "conditions", List.of(cond("{{trigger.body.ok}}", "is_true", null))));
+        assertNull(normalizedWith("act_logic_filter", filter, "con_1").connectionId(), "dropped: Logic steps act through nothing");
     }
 }
