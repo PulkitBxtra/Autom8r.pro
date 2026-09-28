@@ -92,10 +92,14 @@ public class OAuthService {
         params.put("response_type", "code");
         params.put("client_id", clientId);
         params.put("redirect_uri", providers.callbackUrl());
-        params.put("scope", provider.scopes());
+        if (provider.scopes() != null && !provider.scopes().isBlank()) {
+            params.put("scope", provider.scopes());
+        }
         params.put("state", state);
-        params.put("code_challenge", challenge(verifier));
-        params.put("code_challenge_method", "S256");
+        if (provider.pkce()) {
+            params.put("code_challenge", challenge(verifier));
+            params.put("code_challenge_method", "S256");
+        }
         params.putAll(provider.extraAuthorizeParams());
         return provider.authorizeUrl() + "?" + query(params);
     }
@@ -137,14 +141,14 @@ public class OAuthService {
 
         try {
             ClientCredentials client = clients.credentialsFor(provider, s.getOauthClientId());
-            Map<String, String> form = new LinkedHashMap<>();
-            form.put("grant_type", "authorization_code");
-            form.put("code", code);
-            form.put("redirect_uri", providers.callbackUrl());
-            form.put("client_id", client.clientId());
-            form.put("client_secret", client.clientSecret());
-            form.put("code_verifier", cipher.decrypt(s.getCodeVerifier()).get("v"));
-            TokenResponse response = http.postForm(provider.displayName(), provider.tokenUrl(), form);
+            Map<String, String> params = new LinkedHashMap<>();
+            params.put("grant_type", "authorization_code");
+            params.put("code", code);
+            params.put("redirect_uri", providers.callbackUrl());
+            if (provider.pkce()) {
+                params.put("code_verifier", cipher.decrypt(s.getCodeVerifier()).get("v"));
+            }
+            TokenResponse response = http.token(provider, client, params);
 
             Object access = response.body().get(TokenService.ACCESS_TOKEN);
             if (response.error() != null || response.status() >= 400 || access == null) {

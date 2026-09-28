@@ -91,7 +91,7 @@ public class ConnectorRegistry {
                             String workspace = string(me, "bot", "workspace_name");
                             return string(me, "name") + (workspace != null ? " · " + workspace : "");
                         }),
-                null));
+                "notion"));
 
         list.add(new Connector("app_stripe", "Stripe", "Payments, customers and invoices",
                 new TokenAuth(List.of(secret("apiKey", "Secret or restricted key", "sk_test_… / rk_live_…",

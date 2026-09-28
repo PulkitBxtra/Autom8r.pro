@@ -93,12 +93,10 @@ public class TokenService {
 
         TokenResponse response;
         try {
-            Map<String, String> form = new LinkedHashMap<>();
-            form.put("grant_type", "refresh_token");
-            form.put("refresh_token", refreshToken);
-            form.put("client_id", client.clientId());
-            form.put("client_secret", client.clientSecret());
-            response = http.postForm(provider.displayName(), provider.tokenUrl(), form);
+            Map<String, String> params = new LinkedHashMap<>();
+            params.put("grant_type", "refresh_token");
+            params.put("refresh_token", refreshToken);
+            response = http.token(provider, client, params);
         } catch (ConnectionVerificationException networkError) {
             return temporaryFailure(c, credentials, networkError.getMessage(), now);
         }

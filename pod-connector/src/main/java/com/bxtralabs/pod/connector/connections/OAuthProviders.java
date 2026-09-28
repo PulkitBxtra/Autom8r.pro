@@ -1,5 +1,6 @@
 package com.bxtralabs.pod.connector.connections;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -15,10 +16,22 @@ import java.util.Optional;
 @Component
 public class OAuthProviders {
 
+    // How a provider's token endpoint wants to be called (code exchange and refresh alike):
+    //   FORM        form body carrying client_id and client_secret (GitHub, Google, RFC 6749)
+    //   BASIC_JSON  client id:secret as HTTP Basic auth, JSON body without them (Notion)
+    public enum TokenStyle { FORM, BASIC_JSON }
+
     // setupUrl: where a user creates their own OAuth app with this provider.
+    // pkce: whether it supports PKCE (code_challenge / code_verifier); Notion doesn't.
     public record Provider(String id, String displayName, String authorizeUrl, String tokenUrl, String scopes,
                            String clientId, String clientSecret, Map<String, String> extraAuthorizeParams,
-                           String setupUrl) {
+                           String setupUrl, TokenStyle tokenStyle, boolean pkce) {
+
+        public Provider(String id, String displayName, String authorizeUrl, String tokenUrl, String scopes,
+                        String clientId, String clientSecret, Map<String, String> extraAuthorizeParams, String setupUrl) {
+            this(id, displayName, authorizeUrl, tokenUrl, scopes, clientId, clientSecret, extraAuthorizeParams, setupUrl,
+                    TokenStyle.FORM, true);
+        }
 
         public boolean configured() {
             return clientId != null && !clientId.isBlank() && clientSecret != null && !clientSecret.isBlank();
@@ -28,12 +41,23 @@ public class OAuthProviders {
     private final Map<String, Provider> providers = new LinkedHashMap<>();
     private final String callbackUrl;
 
+    // Without Notion's server app (tests that only care about GitHub/Google).
+    public OAuthProviders(String githubOauthBase, String githubClientId, String githubClientSecret, String githubScopes,
+                          String googleClientId, String googleClientSecret, String publicUrl) {
+        this(githubOauthBase, githubClientId, githubClientSecret, githubScopes, googleClientId, googleClientSecret,
+                "https://api.notion.com/v1", "", "", publicUrl);
+    }
+
+    @Autowired
     public OAuthProviders(@Value("${connectors.github.oauth-base:https://github.com}") String githubOauthBase,
                           @Value("${connectors.github.oauth.client-id:}") String githubClientId,
                           @Value("${connectors.github.oauth.client-secret:}") String githubClientSecret,
                           @Value("${connectors.github.oauth.scopes:read:user repo}") String githubScopes,
                           @Value("${connectors.google.oauth.client-id:}") String googleClientId,
                           @Value("${connectors.google.oauth.client-secret:}") String googleClientSecret,
+                          @Value("${connectors.notion.oauth-base:https://api.notion.com/v1}") String notionOauthBase,
+                          @Value("${connectors.notion.oauth.client-id:}") String notionClientId,
+                          @Value("${connectors.notion.oauth.client-secret:}") String notionClientSecret,
                           @Value("${app.public-url:http://localhost:8084}") String publicUrl) {
         // Every provider sends the browser back here, for the server's app and users' own apps
         // alike (the state says which sign-in it is). Must match what's registered exactly.
@@ -52,6 +76,17 @@ public class OAuthProviders {
                 googleClientId, googleClientSecret,
                 Map.of("access_type", "offline", "prompt", "consent"),
                 "https://console.cloud.google.com/apis/credentials"));
+        // A Notion "public connection". No scopes (access is whatever pages the user picks when
+        // signing in), owner=user, Basic-auth JSON token requests, no PKCE. Refreshing rotates
+        // both tokens.
+        String notion = notionOauthBase.replaceAll("/+$", "");
+        register(new Provider("notion", "Notion",
+                notion + "/oauth/authorize",
+                notion + "/oauth/token",
+                "", notionClientId, notionClientSecret,
+                Map.of("owner", "user"),
+                "https://www.notion.so/profile/integrations",
+                TokenStyle.BASIC_JSON, false));
     }
 
     private void register(Provider provider) {

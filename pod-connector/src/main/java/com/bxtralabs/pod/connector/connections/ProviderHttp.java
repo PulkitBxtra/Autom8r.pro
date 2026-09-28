@@ -52,6 +52,25 @@ public class ProviderHttp {
         }
     }
 
+    // A call to a provider's token endpoint (grant_type authorization_code or refresh_token) in
+    // the style it wants: client credentials in the form, or as Basic auth with a JSON body.
+    public TokenResponse token(OAuthProviders.Provider provider, OAuthClientService.ClientCredentials client,
+                               Map<String, String> params) {
+        if (provider.tokenStyle() == OAuthProviders.TokenStyle.BASIC_JSON) {
+            String basic = java.util.Base64.getEncoder().encodeToString(
+                    (client.clientId() + ":" + client.clientSecret()).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            Map<String, String> body = new java.util.LinkedHashMap<>();
+            params.forEach((k, v) -> { if (v != null) body.put(k, v); });
+            HttpRequest request = request(provider.tokenUrl(), Map.of("Content-Type", "application/json", "Authorization", "Basic " + basic))
+                    .POST(HttpRequest.BodyPublishers.ofString(jsonMapper.writeValueAsString(body))).build();
+            return exchange(provider.displayName(), request);
+        }
+        Map<String, String> form = new java.util.LinkedHashMap<>(params);
+        form.put("client_id", client.clientId());
+        form.put("client_secret", client.clientSecret());
+        return postForm(provider.displayName(), provider.tokenUrl(), form);
+    }
+
     // application/x-www-form-urlencoded POST. Only network failures throw.
     public TokenResponse postForm(String provider, String url, Map<String, String> form) {
         StringBuilder encoded = new StringBuilder();
@@ -64,6 +83,10 @@ public class ProviderHttp {
         });
         HttpRequest request = request(url, Map.of("Content-Type", "application/x-www-form-urlencoded"))
                 .POST(HttpRequest.BodyPublishers.ofString(encoded.toString())).build();
+        return exchange(provider, request);
+    }
+
+    private TokenResponse exchange(String provider, HttpRequest request) {
         HttpResponse<String> response;
         try {
             response = client.send(request, HttpResponse.BodyHandlers.ofString());
