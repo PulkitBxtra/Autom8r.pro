@@ -1,10 +1,12 @@
 package com.bxtralabs.pod.backend.service;
 
+import com.bxtralabs.pod.backend.catalog.SecretMasker;
 import com.bxtralabs.pod.backend.common.NotFoundException;
 import com.bxtralabs.pod.backend.model.ExecutionRun;
 import com.bxtralabs.pod.backend.model.StepRunView;
 import com.bxtralabs.pod.backend.model.Workflow;
 import com.bxtralabs.pod.backend.model.WorkflowVersion;
+import com.bxtralabs.pod.backend.model.graph.GraphNode;
 import com.bxtralabs.pod.backend.model.graph.WorkflowGraph;
 import com.bxtralabs.pod.backend.repository.ExecutionRunRepository;
 import com.bxtralabs.pod.backend.repository.StepRunViewRepository;
@@ -28,10 +30,13 @@ public class RunService {
     private final WorkflowVersionRepository workflowVersionRepository;
     private final ExecutionRunRepository executionRunRepository;
     private final StepRunViewRepository stepRunViewRepository;
+    private final SecretMasker secretMasker;
 
     public RunService(WorkflowService workflowService, WorkflowRepository workflowRepository,
                       WorkflowVersionRepository workflowVersionRepository,
-                      ExecutionRunRepository executionRunRepository, StepRunViewRepository stepRunViewRepository) {
+                      ExecutionRunRepository executionRunRepository, StepRunViewRepository stepRunViewRepository,
+                      SecretMasker secretMasker) {
+        this.secretMasker = secretMasker;
         this.workflowService = workflowService;
         this.workflowRepository = workflowRepository;
         this.workflowVersionRepository = workflowVersionRepository;
@@ -82,14 +87,20 @@ public class RunService {
 
         WorkflowVersion version = run.getWorkflowVersionId() == null ? null
                 : workflowVersionRepository.findById(run.getWorkflowVersionId()).orElse(null);
+        // Inputs are shown with secret settings hidden, as the version that ran defines them.
+        Map<String, GraphNode> nodes = new HashMap<>();
+        if (version != null && version.getGraph() != null && version.getGraph().nodes() != null) {
+            version.getGraph().nodes().forEach(n -> nodes.put(n.id(), n));
+        }
         List<StepDetail> steps = stepRunViewRepository.findByRunIdOrderByCreatedAtAsc(runId).stream()
-                .map(s -> new StepDetail(s.getId(), s.getNodeId(), s.getStatus(), s.getAttempt(), s.getInput(),
+                .map(s -> new StepDetail(s.getId(), s.getNodeId(), s.getStatus(), s.getAttempt(),
+                        secretMasker.maskInput(nodes.get(s.getNodeId()), s.getInput()),
                         s.getOutput(), s.getError(), s.getStartedAt(), s.getEndedAt(), s.getNextAttemptAt()))
                 .toList();
         Object triggerBody = run.getMetadata() == null ? null : run.getMetadata().get("body");
 
         return new RunDetail(summary(run, version == null ? null : version.getVersion()),
-                triggerBody, version == null ? null : version.getGraph(), steps);
+                triggerBody, version == null ? null : secretMasker.mask(version.getGraph()), steps);
     }
 
     private static RunSummary summary(ExecutionRun run, Integer version) {

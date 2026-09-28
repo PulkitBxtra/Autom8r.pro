@@ -1,10 +1,17 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Braces, ChevronLeft, Plus, X } from "lucide-react";
+import { Braces, ChevronLeft, Eye, EyeOff, Plus, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AppLogo } from "@/components/ui/app-logo";
-import { describePath, isEmptyValue, templatePaths, type DataSource } from "@/lib/step-fields";
+import {
+  describePath,
+  isEmptyValue,
+  isSensitiveKey,
+  SECRET_MASK,
+  templatePaths,
+  type DataSource,
+} from "@/lib/step-fields";
 import type { CatalogField } from "@/lib/types";
 
 // The Configure tab: one input per catalog field, saved into the step's parameters by key.
@@ -130,7 +137,7 @@ function FieldInput({
         </select>
       );
     case "keyvalue":
-      return <KeyValueInput value={value} sources={sources} invalid={invalid} onChange={onChange} />;
+      return <KeyValueInput value={value} sources={sources} invalid={invalid} secret={field.secret} onChange={onChange} />;
     case "json":
       return <JsonInput id={id} field={field} value={value} sources={sources} invalid={invalid} onChange={onChange} />;
     case "number":
@@ -151,6 +158,7 @@ function FieldInput({
         <TemplateInput
           id={id}
           multiline={field.type === "textarea"}
+          secret={field.secret && field.type === "text"}
           value={typeof value === "string" ? value : value == null ? "" : String(value)}
           placeholder={field.placeholder ?? undefined}
           sources={sources}
@@ -174,6 +182,7 @@ function TemplateInput({
   invalid,
   inputMode,
   ariaLabel,
+  secret = false,
 }: {
   id?: string;
   value: string;
@@ -186,10 +195,14 @@ function TemplateInput({
   invalid?: boolean;
   inputMode?: "decimal";
   ariaLabel?: string;
+  // Typed like a password, with a show/hide toggle. Single-line only.
+  secret?: boolean;
 }) {
   const ref = useRef<HTMLInputElement & HTMLTextAreaElement>(null);
   const caret = useRef<[number, number] | null>(null);
   const [picking, setPicking] = useState(false);
+  const [revealed, setRevealed] = useState(false);
+  const masked = secret && !multiline;
 
   function remember() {
     const el = ref.current;
@@ -212,6 +225,7 @@ function TemplateInput({
   const className = cn(
     "w-full rounded-lg border bg-surface-sunken px-3.5 text-sm text-text placeholder:text-text-faint outline-none transition-colors focus:border-lemon",
     sources.length > 0 && "pr-10",
+    masked && (sources.length > 0 ? "pr-[4.5rem]" : "pr-10"),
     mono && "font-mono text-xs",
     invalid ? "border-red-500/60" : "border-border-strong"
   );
@@ -226,6 +240,10 @@ function TemplateInput({
     onSelect: remember,
     onKeyUp: remember,
     onBlur: remember,
+    // A saved secret shows as dots; select it so typing replaces it rather than editing the dots.
+    onFocus: (e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+      if (value === SECRET_MASK) e.target.select();
+    },
   };
 
   return (
@@ -233,7 +251,27 @@ function TemplateInput({
       {multiline ? (
         <textarea {...common} rows={rows ?? 4} className={cn(className, "block resize-y py-3")} />
       ) : (
-        <input {...common} inputMode={inputMode} className={cn(className, "h-11")} />
+        <input
+          {...common}
+          type={masked && !revealed ? "password" : "text"}
+          autoComplete={masked ? "new-password" : undefined}
+          inputMode={inputMode}
+          className={cn(className, "h-11")}
+        />
+      )}
+      {masked && (
+        <button
+          type="button"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => setRevealed((r) => !r)}
+          aria-label={revealed ? "Hide value" : "Show value"}
+          className={cn(
+            "absolute top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded-md text-text-faint transition-colors hover:bg-white/10 hover:text-text",
+            sources.length > 0 ? "right-10" : "right-2"
+          )}
+        >
+          {revealed ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+        </button>
       )}
       {sources.length > 0 && (
         <button
@@ -368,11 +406,14 @@ function KeyValueInput({
   value,
   sources,
   invalid,
+  secret,
   onChange,
 }: {
   value: unknown;
   sources: DataSource[];
   invalid: boolean;
+  // Values of sensitive-looking names (Authorization...) are typed like passwords.
+  secret: boolean;
   onChange: (value: unknown) => void;
 }) {
   const [rows, setRows] = useState<Row[]>(() => {
@@ -406,6 +447,8 @@ function KeyValueInput({
           <div className="min-w-0 flex-1">
             <TemplateInput
               ariaLabel={`Value ${i + 1}`}
+              // A value that's only a template names where data comes from; nothing to hide.
+              secret={secret && isSensitiveKey(row.key) && !/^\s*\{\{[^{}]+\}\}\s*$/.test(row.value)}
               value={row.value}
               placeholder="Value"
               sources={sources}

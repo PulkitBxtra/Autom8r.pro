@@ -11,6 +11,8 @@ import java.util.Set;
 //   select          one of options[].value
 //   keyvalue        object of string -> string (headers, row values)
 //   json            any JSON value
+// secret: never shown back once saved (see SecretMasker). On text the whole value; on keyvalue
+// the values of sensitive-looking names (Authorization, X-Api-Key...).
 public record CatalogField(
         String key,
         String label,
@@ -19,11 +21,13 @@ public record CatalogField(
         String placeholder,
         String help,
         List<Option> options,
-        Object defaultValue
+        Object defaultValue,
+        Boolean secret
 ) {
     // Most fields leave out "required", which means optional.
     public CatalogField {
         required = required != null && required;
+        secret = secret != null && secret;
     }
 
     public static final Set<String> TYPES = Set.of("text", "textarea", "number", "boolean", "select", "keyvalue", "json");

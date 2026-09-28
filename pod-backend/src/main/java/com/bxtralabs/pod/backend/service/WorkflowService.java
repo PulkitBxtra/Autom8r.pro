@@ -1,5 +1,6 @@
 package com.bxtralabs.pod.backend.service;
 
+import com.bxtralabs.pod.backend.catalog.SecretMasker;
 import com.bxtralabs.pod.backend.catalog.StepSettingsValidator;
 import com.bxtralabs.pod.backend.common.ConflictException;
 import com.bxtralabs.pod.backend.common.NotFoundException;
@@ -37,6 +38,9 @@ public class WorkflowService {
     private StepSettingsValidator stepSettingsValidator;
 
     @Autowired
+    private SecretMasker secretMasker;
+
+    @Autowired
     private ConnectionViewRepository connectionViewRepository;
 
     public List<Workflow> listForUser(String userId) {
@@ -66,7 +70,7 @@ public class WorkflowService {
     public Workflow create(String userId, String name, WorkflowGraph graph) {
         // Validate before inserting anything, so a bad graph never leaves an empty workflow behind.
         graphValidator.validate(graph);
-        graph = stepSettingsValidator.normalize(graph);
+        graph = stepSettingsValidator.normalize(secretMasker.restore(graph, null));
         checkConnections(userId, graph);
 
         Workflow workflow = new Workflow();
@@ -84,11 +88,13 @@ public class WorkflowService {
     @Transactional
     public Workflow update(String id, String userId, String name, WorkflowGraph graph, String baseVersionId) {
         graphValidator.validate(graph);
-        graph = stepSettingsValidator.normalize(graph);
         Workflow workflow = getForUser(id, userId);
         if (baseVersionId != null && !baseVersionId.equals(workflow.getCurrentVersionId())) {
             throw new ConflictException("This workflow was changed since you opened it. Reload to see the latest version.");
         }
+        // Secret settings come back masked; a save that leaves them masked keeps what's stored.
+        WorkflowVersion current = getCurrentVersion(workflow);
+        graph = stepSettingsValidator.normalize(secretMasker.restore(graph, current == null ? null : current.getGraph()));
         checkConnections(userId, graph);
 
         workflow.setName(name);

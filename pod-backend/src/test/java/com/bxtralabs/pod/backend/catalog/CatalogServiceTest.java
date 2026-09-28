@@ -56,7 +56,7 @@ class CatalogServiceTest {
     }
 
     private static CatalogField field(String key, String type, List<CatalogField.Option> options, Object dflt) {
-        return new CatalogField(key, "Label", type, false, null, null, options, dflt);
+        return new CatalogField(key, "Label", type, false, null, null, options, dflt, null);
     }
 
     private static List<CatalogApp> appWith(String handler, CatalogField... fields) {

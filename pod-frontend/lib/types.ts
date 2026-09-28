@@ -15,6 +15,9 @@ export type CatalogField = {
   help: string | null;
   options: { value: string; label: string }[] | null;
   defaultValue: unknown;
+  // Hidden once saved: pod-backend sends SECRET_MASK instead. On keyvalue, only values of
+  // sensitive-looking names (see isSensitiveKey).
+  secret: boolean;
 };
 
 export type AppTrigger = {

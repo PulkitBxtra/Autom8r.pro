@@ -106,6 +106,9 @@ public class CatalogService {
             if (select == (f.options() == null || f.options().isEmpty())) {
                 throw invalid(select ? "has select " + where + " without options" : "has options on non-select " + where);
             }
+            if (f.secret() && !"text".equals(f.type()) && !"keyvalue".equals(f.type())) {
+                throw invalid("marks " + where + " secret, which only text and keyvalue fields can be");
+            }
             if (select && f.defaultValue() != null
                     && f.options().stream().noneMatch(o -> o.value().equals(f.defaultValue()))) {
                 throw invalid("has select " + where + " whose default isn't one of its options");

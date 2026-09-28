@@ -1,9 +1,12 @@
 package com.bxtralabs.pod.processor.model.graph;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+
 import java.util.List;
 import java.util.Map;
 
 // Copy of pod-backend's GraphNode; keep the two in sync.
+@JsonIgnoreProperties(ignoreUnknown = true)
 public record GraphNode(
         String id,
         String kind,
@@ -24,6 +27,7 @@ public record GraphNode(
     public static final String KIND_TRIGGER = "trigger";
     public static final String KIND_ACTION = "action";
 
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record Position(double x, double y) {
     }
 }

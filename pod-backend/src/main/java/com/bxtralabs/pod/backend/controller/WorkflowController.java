@@ -1,5 +1,6 @@
 package com.bxtralabs.pod.backend.controller;
 
+import com.bxtralabs.pod.backend.catalog.SecretMasker;
 import com.bxtralabs.pod.backend.model.Action;
 import com.bxtralabs.pod.backend.model.Workflow;
 import com.bxtralabs.pod.backend.model.WorkflowVersion;
@@ -24,10 +25,12 @@ public class WorkflowController {
 
     private final AuthService authService;
     private final WorkflowService workflowService;
+    private final SecretMasker secretMasker;
 
-    public WorkflowController(AuthService authService, WorkflowService workflowService) {
+    public WorkflowController(AuthService authService, WorkflowService workflowService, SecretMasker secretMasker) {
         this.authService = authService;
         this.workflowService = workflowService;
+        this.secretMasker = secretMasker;
     }
 
     // Includes each workflow's current graph so list views can show step counts.
@@ -68,7 +71,7 @@ public class WorkflowController {
                 workflow.getTriggerId(),
                 workflow.getCurrentVersionId(),
                 version == null ? null : version.getVersion(),
-                version == null ? null : version.getGraph(),
+                version == null ? null : secretMasker.mask(version.getGraph()),
                 workflow.getActions()
         );
     }

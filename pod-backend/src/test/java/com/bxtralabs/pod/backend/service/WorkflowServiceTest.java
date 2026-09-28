@@ -1,6 +1,7 @@
 package com.bxtralabs.pod.backend.service;
 
 import com.bxtralabs.pod.backend.catalog.CatalogService;
+import com.bxtralabs.pod.backend.catalog.SecretMasker;
 import com.bxtralabs.pod.backend.catalog.StepSettingsValidator;
 import com.bxtralabs.pod.backend.common.ConflictException;
 import com.bxtralabs.pod.backend.common.NotFoundException;
@@ -47,6 +48,8 @@ class WorkflowServiceTest {
     private GraphValidator graphValidator = new GraphValidator();
     @Spy
     private StepSettingsValidator stepSettingsValidator = realStepSettingsValidator();
+    @Spy
+    private SecretMasker secretMasker = new SecretMasker(catalog());
     @InjectMocks
     private WorkflowService workflowService;
 
@@ -58,6 +61,14 @@ class WorkflowServiceTest {
                     new GraphNode("a", "action", "HTTP", "act_http_request", "Make a Request", "http_request",
                             Map.of("method", "GET", "url", "https://example.com"), null, null, null, null)),
             List.of(new GraphEdge("t", "a", null)));
+
+    private static CatalogService catalog() {
+        try {
+            return new CatalogService(JsonMapper.builder().build());
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
+    }
 
     private static StepSettingsValidator realStepSettingsValidator() {
         try {

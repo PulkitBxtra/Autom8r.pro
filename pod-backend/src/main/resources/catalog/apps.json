@@ -34,7 +34,8 @@
                 { "value": "DELETE", "label": "DELETE" }
               ] },
             { "key": "url", "label": "URL", "type": "text", "required": true, "placeholder": "https://api.example.com/items" },
-            { "key": "headers", "label": "Headers", "type": "keyvalue" },
+            { "key": "headers", "label": "Headers", "type": "keyvalue", "secret": true,
+              "help": "Values of headers like Authorization or X-Api-Key are hidden once saved. For credentials you reuse, add an HTTP connection instead." },
             { "key": "body", "label": "Body", "type": "json",
               "help": "JSON is sent as application/json unless you set a Content-Type header; plain text is sent as-is." },
             { "key": "timeoutSeconds", "label": "Timeout (seconds)", "type": "number", "defaultValue": 30,

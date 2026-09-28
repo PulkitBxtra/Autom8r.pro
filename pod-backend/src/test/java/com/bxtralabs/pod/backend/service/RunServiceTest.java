@@ -30,7 +30,7 @@ class RunServiceTest {
     private final ExecutionRunRepository runRepository = mock(ExecutionRunRepository.class);
     private final StepRunViewRepository stepRepository = mock(StepRunViewRepository.class);
     private final RunService service =
-            new RunService(workflowService, workflowRepository, versionRepository, runRepository, stepRepository);
+            new RunService(workflowService, workflowRepository, versionRepository, runRepository, stepRepository, masker());
 
     private static final WorkflowGraph GRAPH = new WorkflowGraph(
             List.of(new GraphNode("t", "trigger", "Webhook", "x", null, null, Map.of(), null, null, null, null)), List.of());
@@ -147,5 +147,14 @@ class RunServiceTest {
         assertNull(detail.graph());
         assertNull(detail.run().version());
         assertEquals("Workflow version null not found", detail.run().error());
+    }
+
+    private static com.bxtralabs.pod.backend.catalog.SecretMasker masker() {
+        try {
+            return new com.bxtralabs.pod.backend.catalog.SecretMasker(
+                    new com.bxtralabs.pod.backend.catalog.CatalogService(tools.jackson.databind.json.JsonMapper.builder().build()));
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
     }
 }

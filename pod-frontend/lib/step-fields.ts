@@ -10,6 +10,14 @@ export type DataSource = {
   path: string;
 };
 
+// What pod-backend sends in place of a saved secret. Saving it back unchanged keeps the secret.
+export const SECRET_MASK = "••••••••";
+
+// Same rule as pod-backend's SecretMasker: header/key names whose values are secret.
+export function isSensitiveKey(key: string) {
+  return /auth|cookie|token|secret|passw|api[-_]?key|private|session|signature/i.test(key);
+}
+
 // Parameters a freshly chosen trigger/action starts with: every field's default.
 export function defaultParameters(fields: CatalogField[]): Record<string, unknown> {
   const params: Record<string, unknown> = {};

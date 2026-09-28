@@ -16,10 +16,10 @@ class StepInputCheckerTest {
     private final StepInputChecker checker = new StepInputChecker();
 
     private static final List<FieldSpec> FIELDS = List.of(
-            new FieldSpec("url", "URL", "text", true, null),
-            new FieldSpec("timeoutSeconds", "Timeout (seconds)", "number", false, null),
-            new FieldSpec("send", "Send", "boolean", false, null),
-            new FieldSpec("method", "Method", "select", true, List.of("GET", "POST")));
+            new FieldSpec("url", "URL", "text", true, null, false),
+            new FieldSpec("timeoutSeconds", "Timeout (seconds)", "number", false, null, false),
+            new FieldSpec("send", "Send", "boolean", false, null, false),
+            new FieldSpec("method", "Method", "select", true, List.of("GET", "POST"), false));
 
     private static GraphNode node(Map<String, Object> parameters, List<FieldSpec> fields) {
         return new GraphNode("a", "action", "HTTP", "act_http_request", "Make a Request", "http_request",

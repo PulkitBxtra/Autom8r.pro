@@ -62,7 +62,8 @@ public class StepSettingsValidator {
 
         List<FieldSpec> specs = (fields == null ? List.<CatalogField>of() : fields).stream()
                 .map(f -> new FieldSpec(f.key(), f.label(), f.type(), f.required(),
-                        f.options() == null ? null : f.options().stream().map(CatalogField.Option::value).toList()))
+                        f.options() == null ? null : f.options().stream().map(CatalogField.Option::value).toList(),
+                        f.secret()))
                 .toList();
 
         return new GraphNode(node.id(), node.kind(), app.name(), node.itemId(), itemName, handler, parameters,
