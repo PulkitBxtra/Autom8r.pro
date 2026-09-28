@@ -18,4 +18,11 @@ public interface ActionHandler {
             throws Exception {
         return execute(node, input);
     }
+
+    // With the step run's context, for handlers that must not repeat work on a retry (creating
+    // things in an app). Throw UncertainStepException when the work may have happened anyway.
+    default Map<String, Object> execute(GraphNode node, Map<String, Object> input, StepCredentials credentials,
+                                        StepContext context) throws Exception {
+        return execute(node, input, credentials);
+    }
 }

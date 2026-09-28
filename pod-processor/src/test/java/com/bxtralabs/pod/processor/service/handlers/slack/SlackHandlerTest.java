@@ -120,9 +120,9 @@ class SlackHandlerTest {
         assertThrows(IllegalStateException.class, () -> post(Map.of("channel", "#a", "text", "x")));
         status = 200;
         answer = "{\"ok\":false,\"error\":\"internal_error\"}";
-        assertThrows(IllegalStateException.class, () -> post(Map.of("channel", "#a", "text", "x")));
+        assertThrows(com.bxtralabs.pod.processor.service.handlers.UncertainStepException.class, () -> post(Map.of("channel", "#a", "text", "x")));
         status = 503;
         answer = "down";
-        assertThrows(IllegalStateException.class, () -> post(Map.of("channel", "#a", "text", "x")));
+        assertThrows(com.bxtralabs.pod.processor.service.handlers.UncertainStepException.class, () -> post(Map.of("channel", "#a", "text", "x")));
     }
 }

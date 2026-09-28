@@ -54,7 +54,7 @@ class StepResultsTest {
 
         publisher.publish(new StepResultMessage("exn_1", "stp_a", INPUT, OUTPUT, null, false, 1));
 
-        verify(orchestrator).completeStep("exn_1", "stp_a", INPUT, OUTPUT, null, false, 1);
+        verify(orchestrator).completeStep("exn_1", "stp_a", INPUT, OUTPUT, null, false, 1, false);
     }
 
     @Test
@@ -79,7 +79,7 @@ class StepResultsTest {
 
         pending.completeExceptionally(new RuntimeException("delivery timeout"));
 
-        verify(orchestrator).completeStep("exn_1", "stp_a", null, null, "HTTP 503", true, 1);
+        verify(orchestrator).completeStep("exn_1", "stp_a", null, null, "HTTP 503", true, 1, false);
     }
 
     @Test
@@ -99,7 +99,7 @@ class StepResultsTest {
 
         publisher.publish(new StepResultMessage("exn_1", "stp_a", null, Map.of("x", 1), null, false, 1));
 
-        verify(orchestrator).completeStep("exn_1", "stp_a", null, Map.of("x", 1), null, false, 1);
+        verify(orchestrator).completeStep("exn_1", "stp_a", null, Map.of("x", 1), null, false, 1, false);
     }
 
     // ---------- consumer ----------
@@ -112,7 +112,7 @@ class StepResultsTest {
         consumer.consume(payload, ack);
 
         var inOrder = inOrder(orchestrator, ack);
-        inOrder.verify(orchestrator).completeStep("exn_1", "stp_a", INPUT, OUTPUT, null, false, 1);
+        inOrder.verify(orchestrator).completeStep("exn_1", "stp_a", INPUT, OUTPUT, null, false, 1, false);
         inOrder.verify(ack).acknowledge();
     }
 
@@ -123,13 +123,13 @@ class StepResultsTest {
 
         consumer.consume(payload, ack);
 
-        verify(orchestrator).completeStep("exn_1", "stp_a", INPUT, null, "HTTP 503", true, 1);
+        verify(orchestrator).completeStep("exn_1", "stp_a", INPUT, null, "HTTP 503", true, 1, false);
     }
 
     @Test
     void consumerDoesNotAckWhenApplyingFails() {
         Acknowledgment ack = mock(Acknowledgment.class);
-        doThrow(new RuntimeException("db down")).when(orchestrator).completeStep(any(), any(), any(), any(), any(), anyBoolean(), anyInt());
+        doThrow(new RuntimeException("db down")).when(orchestrator).completeStep(any(), any(), any(), any(), any(), anyBoolean(), anyInt(), anyBoolean());
         String payload = jsonMapper.writeValueAsString(new StepResultMessage("exn_1", "stp_a", null, Map.of(), null, false, 1));
 
         assertThrows(RuntimeException.class, () -> consumer.consume(payload, ack));

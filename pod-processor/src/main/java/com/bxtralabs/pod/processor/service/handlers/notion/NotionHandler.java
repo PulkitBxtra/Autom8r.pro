@@ -2,6 +2,8 @@ package com.bxtralabs.pod.processor.service.handlers.notion;
 
 import com.bxtralabs.pod.processor.model.graph.GraphNode;
 import com.bxtralabs.pod.processor.service.handlers.ActionHandler;
+import com.bxtralabs.pod.processor.service.handlers.AppCalls;
+import com.bxtralabs.pod.processor.service.handlers.StepContext;
 import com.bxtralabs.pod.processor.service.handlers.PermanentStepException;
 import com.bxtralabs.pod.processor.service.handlers.StepCredentials;
 import org.springframework.beans.factory.annotation.Value;
@@ -25,6 +27,9 @@ import java.util.regex.Pattern;
 //   notion.update_page  pageId, properties -> {id, url, lastEditedTime}
 // A database parent takes the title under its title column plus any properties; a page parent
 // takes only a title. content becomes paragraphs, one per non-empty line.
+// Not twice: if an earlier attempt may have created the page (StepContext.mayHaveHappened), it
+// first looks for a page with the same title under the same parent created since the step first
+// started, and returns it (alreadyDone: true). Updating a page is safe to repeat.
 // Failures: not found (usually: not shared with the integration), no permission, and input Notion
 // rejects fail the step for good; rate limits, conflicts and 5xx are retried.
 @Component
@@ -59,6 +64,12 @@ public class NotionHandler implements ActionHandler {
 
     @Override
     public Map<String, Object> execute(GraphNode node, Map<String, Object> input, StepCredentials credentials) throws Exception {
+        return execute(node, input, credentials, null);
+    }
+
+    @Override
+    public Map<String, Object> execute(GraphNode node, Map<String, Object> input, StepCredentials credentials,
+                                       StepContext context) throws Exception {
         String token = credentials == null ? null : credentials.get("access_token") != null
                 ? credentials.get("access_token") : credentials.get("token");
         if (token == null || token.isBlank()) {
@@ -80,6 +91,16 @@ public class NotionHandler implements ActionHandler {
         String title = text(input.get("title"));
         Map<String, Object> body = new LinkedHashMap<>();
         Map<?, ?> database = findDatabase(token, parentId);
+        if (context != null && context.mayHaveHappened()) {
+            Map<String, Object> earlier = database != null
+                    ? earlierRow(token, parentId, titleColumn(database), title, context)
+                    : earlierSubpage(token, parentId, title, context);
+            if (earlier != null) {
+                earlier.put("parent", database != null ? "database" : "page");
+                earlier.put("alreadyDone", true);
+                return earlier;
+            }
+        }
         if (database != null) {
             Map<String, Object> props = new LinkedHashMap<>(properties);
             props.put(titleColumn(database), Map.of("title", richText(title)));
@@ -95,7 +116,7 @@ public class NotionHandler implements ActionHandler {
         List<Map<String, Object>> blocks = paragraphs(text(input.get("content")));
         if (!blocks.isEmpty()) body.put("children", blocks);
 
-        Map<?, ?> page = send(token, "POST", "/pages", body, (database != null ? "database " : "page ") + parentId);
+        Map<?, ?> page = check(raw(token, "POST", "/pages", body, true), (database != null ? "database " : "page ") + parentId, true);
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("id", page.get("id"));
         out.put("url", page.get("url"));
@@ -127,11 +148,58 @@ public class NotionHandler implements ActionHandler {
         return "Name";
     }
 
+    // A row of the database with this title that an earlier attempt created, if any. (Notion
+    // records creation times to the minute, which the one-minute margin in `since` covers.)
+    private Map<String, Object> earlierRow(String token, String databaseId, String titleColumn, String title,
+                                           StepContext context) throws Exception {
+        Map<String, Object> filter = Map.of("and", List.of(
+                Map.of("property", titleColumn, "title", Map.of("equals", title)),
+                Map.of("timestamp", "created_time", "created_time", Map.of("on_or_after", AppCalls.since(context.firstStartedAt())))));
+        Map<?, ?> res = send(token, "POST", "/databases/" + databaseId + "/query", Map.of("filter", filter, "page_size", 1),
+                "database " + databaseId);
+        List<?> results = (List<?>) res.get("results");
+        if (results == null || results.isEmpty()) return null;
+        Map<?, ?> page = (Map<?, ?>) results.getFirst();
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("id", page.get("id"));
+        out.put("url", page.get("url"));
+        return out;
+    }
+
+    // A sub-page with this title under the page that an earlier attempt created, if any.
+    private Map<String, Object> earlierSubpage(String token, String pageId, String title, StepContext context) throws Exception {
+        String since = AppCalls.since(context.firstStartedAt());
+        String cursor = null;
+        for (int page = 0; page < 10; page++) {
+            Map<?, ?> res = send(token, "GET", "/blocks/" + pageId + "/children?page_size=100"
+                    + (cursor == null ? "" : "&start_cursor=" + cursor), null, "page " + pageId);
+            for (Object b : (List<?>) res.get("results")) {
+                if (b instanceof Map<?, ?> block && "child_page".equals(block.get("type"))
+                        && block.get("child_page") instanceof Map<?, ?> cp && title.equals(cp.get("title"))
+                        && String.valueOf(block.get("created_time")).compareTo(since.substring(0, 16)) >= 0) {
+                    String id = String.valueOf(block.get("id"));
+                    Map<String, Object> out = new LinkedHashMap<>();
+                    out.put("id", id);
+                    out.put("url", "https://www.notion.so/" + id.replace("-", ""));
+                    return out;
+                }
+            }
+            if (!Boolean.TRUE.equals(res.get("has_more"))) break;
+            cursor = String.valueOf(res.get("next_cursor"));
+        }
+        return null;
+    }
+
     private Map<?, ?> send(String token, String method, String path, Object body, String what) throws Exception {
-        return check(raw(token, method, path, body), what);
+        return check(raw(token, method, path, body, false), what, false);
     }
 
     private HttpResponse<String> raw(String token, String method, String path, Object body) throws Exception {
+        return raw(token, method, path, body, false);
+    }
+
+    // creates: the call makes something (POST /pages), so a lost answer or a 5xx is uncertain.
+    private HttpResponse<String> raw(String token, String method, String path, Object body, boolean creates) throws Exception {
         HttpRequest.Builder request = HttpRequest.newBuilder(URI.create(apiBase + path))
                 .timeout(Duration.ofSeconds(30))
                 .header("Authorization", "Bearer " + token)
@@ -139,14 +207,14 @@ public class NotionHandler implements ActionHandler {
                 .header("Content-Type", "application/json")
                 .method(method, body == null ? HttpRequest.BodyPublishers.noBody()
                         : HttpRequest.BodyPublishers.ofString(jsonMapper.writeValueAsString(body)));
-        try {
-            return http.send(request.build(), HttpResponse.BodyHandlers.ofString());
-        } catch (IOException e) {
-            throw new IOException("Couldn't reach Notion: " + e.getMessage(), e);
-        }
+        return AppCalls.send(http, request.build(), "Notion", creates);
     }
 
     private Map<?, ?> check(HttpResponse<String> response, String what) throws Exception {
+        return check(response, what, false);
+    }
+
+    private Map<?, ?> check(HttpResponse<String> response, String what, boolean creates) throws Exception {
         int status = response.statusCode();
         if (status >= 200 && status < 300) {
             return jsonMapper.readValue(response.body(), Map.class);
@@ -158,6 +226,9 @@ public class NotionHandler implements ActionHandler {
             message = String.valueOf(err.get("message"));
         } catch (RuntimeException notJson) {
             // keep them empty
+        }
+        if (creates && status >= 500) {
+            throw AppCalls.uncertainServerError("Notion", status, "the page");
         }
         if (status == 429 || status == 409 || status >= 500) {
             throw new IllegalStateException("Notion is busy or had a problem (" + (code.isEmpty() ? "HTTP " + status : code) + "); will try again");

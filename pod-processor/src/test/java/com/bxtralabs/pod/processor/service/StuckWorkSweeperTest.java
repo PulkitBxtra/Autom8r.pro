@@ -64,7 +64,7 @@ class StuckWorkSweeperTest {
         sweeper.timeOutStuckRunningSteps(NOW);
 
         verify(orchestrator).completeStep(eq("exn_1"), eq("stp_a"), eq(Map.of("url", "http://x")), isNull(),
-                contains("No result within 300s"), eq(true), eq(2));
+                contains("No result within 300s"), eq(true), eq(2), eq(true)); // uncertain: it may have run
     }
 
     @Test
@@ -72,11 +72,11 @@ class StuckWorkSweeperTest {
         when(stepRuns.findStuckRunning(anyLong(), anyInt()))
                 .thenReturn(List.of(step("stp_a", StepStatus.RUNNING, 1), step("stp_b", StepStatus.RUNNING, 1)));
         doThrow(new RuntimeException("db blip")).when(orchestrator)
-                .completeStep(any(), eq("stp_a"), any(), any(), any(), anyBoolean(), anyInt());
+                .completeStep(any(), eq("stp_a"), any(), any(), any(), anyBoolean(), anyInt(), anyBoolean());
 
         sweeper.timeOutStuckRunningSteps(NOW);
 
-        verify(orchestrator).completeStep(any(), eq("stp_b"), any(), any(), any(), anyBoolean(), anyInt());
+        verify(orchestrator).completeStep(any(), eq("stp_b"), any(), any(), any(), anyBoolean(), anyInt(), anyBoolean());
     }
 
     @Test

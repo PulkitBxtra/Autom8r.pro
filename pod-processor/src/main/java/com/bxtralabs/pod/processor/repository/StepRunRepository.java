@@ -23,7 +23,8 @@ public interface StepRunRepository extends JpaRepository<StepRun, String> {
     // claimed it or the run was cancelled, so each step executes at most once per attempt.
     @Modifying
     @Transactional
-    @Query("update StepRun s set s.status = :running, s.startedAt = :now, s.attempt = s.attempt + 1 " +
+    @Query("update StepRun s set s.status = :running, s.startedAt = :now, s.attempt = s.attempt + 1, " +
+            "s.firstStartedAt = coalesce(s.firstStartedAt, :now) " +
             "where s.id = :id and s.status = :ready")
     int claim(@Param("id") String id, @Param("now") long now,
               @Param("ready") StepStatus ready, @Param("running") StepStatus running);

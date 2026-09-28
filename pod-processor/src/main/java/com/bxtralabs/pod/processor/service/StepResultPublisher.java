@@ -68,7 +68,7 @@ public class StepResultPublisher {
         System.out.println("step-results publish failed for " + result.stepRunId()
                 + ", recording result directly: " + cause);
         orchestrator.completeStep(result.runId(), result.stepRunId(), result.input(), result.output(),
-                result.error(), result.retryable(), result.attempt());
+                result.error(), result.retryable(), result.attempt(), result.isUncertain());
     }
 
     // Let in-flight fallbacks finish on shutdown rather than dropping them.

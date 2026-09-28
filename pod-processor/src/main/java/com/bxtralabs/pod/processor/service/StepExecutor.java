@@ -10,7 +10,9 @@ import com.bxtralabs.pod.processor.repository.StepRunRepository;
 import com.bxtralabs.pod.processor.repository.WorkflowOwnerRepository;
 import com.bxtralabs.pod.processor.repository.WorkflowVersionRepository;
 import com.bxtralabs.pod.processor.service.connections.ConnectionCredentialsClient;
+import com.bxtralabs.pod.processor.service.handlers.StepContext;
 import com.bxtralabs.pod.processor.service.handlers.StepCredentials;
+import com.bxtralabs.pod.processor.service.handlers.UncertainStepException;
 import com.bxtralabs.pod.processor.service.handlers.ActionHandlerRegistry;
 import com.bxtralabs.pod.processor.service.handlers.PermanentStepException;
 import com.bxtralabs.pod.processor.service.template.TemplateResolver;
@@ -62,6 +64,7 @@ public class StepExecutor {
         Map<String, Object> output = null;
         String error = null;
         boolean retryable = false;
+        boolean uncertain = false;
         // Set by the claim above. If loading the step fails, this stays 0, the result below is
         // ignored as not matching any attempt, and the sweeper recovers the step.
         int attempt = 0;
@@ -82,9 +85,16 @@ public class StepExecutor {
             input = inputChecker.check(node, input);
             // Fetched per attempt, used for this call only: never part of the recorded input.
             StepCredentials credentials = node.connectionId() == null ? null : credentialsFor(run, node);
-            output = handlers.handlerFor(node).execute(node, input, credentials);
+            // Uncertain means an earlier attempt of this step may already have done the work.
+            StepContext context = new StepContext(step.getId(), step.getAttempt(),
+                    step.getFirstStartedAt() == null ? step.getStartedAt() : step.getFirstStartedAt(), step.isUncertain());
+            output = handlers.handlerFor(node).execute(node, input, credentials, context);
         } catch (PermanentStepException e) {
             error = e.getMessage();
+        } catch (UncertainStepException e) {
+            error = e.getMessage();
+            retryable = true;
+            uncertain = true;
         } catch (Exception e) {
             // Anything a handler didn't mark permanent (timeouts, connection errors, 5xx...) is
             // worth another attempt.
@@ -95,7 +105,7 @@ public class StepExecutor {
         // Goes to the orchestrator via step-results (or directly if Kafka won't take it). If
         // both paths fail (Kafka and the DB down) the step stays RUNNING; the stuck-step
         // sweeper (3.4) recovers it.
-        resultPublisher.publish(new StepResultMessage(runId, stepRunId, input, output, error, retryable, attempt));
+        resultPublisher.publish(new StepResultMessage(runId, stepRunId, input, output, error, retryable, attempt, uncertain));
     }
 
     private StepCredentials credentialsFor(ExecutionRun run, GraphNode node) throws PermanentStepException {

@@ -46,6 +46,27 @@ public class HttpRequestHandler implements ActionHandler {
         return TYPE.equals(node.type());
     }
 
+    // Requests that change something carry Idempotency-Key: the step run's id, the same on every
+    // retry, so APIs that support the header (Stripe, many others) apply it only once. A key set
+    // in the step's own headers wins; GET/HEAD don't need one. The recorded input is unchanged.
+    @Override
+    public Map<String, Object> execute(GraphNode node, Map<String, Object> input, StepCredentials credentials,
+                                       StepContext context) throws Exception {
+        String method = input.get("method") == null ? "GET" : String.valueOf(input.get("method")).toUpperCase();
+        if (context == null || method.equals("GET") || method.equals("HEAD")
+                || (input.get("headers") instanceof Map<?, ?> own && hasHeader(own, "idempotency-key"))) {
+            return execute(node, input, credentials);
+        }
+        Map<String, Object> headers = new LinkedHashMap<>();
+        if (input.get("headers") instanceof Map<?, ?> own) {
+            own.forEach((k, v) -> headers.put(String.valueOf(k), v));
+        }
+        headers.put("Idempotency-Key", context.stepRunId());
+        Map<String, Object> withKey = new LinkedHashMap<>(input);
+        withKey.put("headers", headers);
+        return execute(node, withKey, credentials);
+    }
+
     // With an HTTP connection: its header (e.g. Authorization) is added to the request, unless the
     // step's own settings set the same header, which then wins. The recorded step input doesn't
     // change, so the credential never shows up in the run.

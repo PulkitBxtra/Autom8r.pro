@@ -567,4 +567,21 @@ class OrchestratorTest {
         assertTrue(step("a").getReadyAt() >= before);
         assertNull(step("c").getReadyAt(), "c isn't READY yet");
     }
+
+    // C5: an uncertain failure is remembered on the step for every later attempt.
+    @Test
+    void anUncertainFailureStaysMarkedOnTheStep() throws Exception {
+        givenRun(graph(List.of(node("t", "trigger"), node("a", "action")), List.of(edge("t", "a"))));
+        orchestrator.onRunStarted("exn_1");
+        StepRun a = step("a");
+
+        a.setStatus(StepStatus.RUNNING);
+        orchestrator.completeStep("exn_1", a.getId(), null, null, "No answer from GitHub", true, a.getAttempt(), true);
+        assertEquals(StepStatus.RETRY_WAIT, a.getStatus());
+        assertTrue(a.isUncertain());
+
+        a.setStatus(StepStatus.RUNNING);
+        orchestrator.completeStep("exn_1", a.getId(), null, null, "rate limited", true, a.getAttempt(), false);
+        assertTrue(a.isUncertain(), "a later definite failure doesn't clear it");
+    }
 }

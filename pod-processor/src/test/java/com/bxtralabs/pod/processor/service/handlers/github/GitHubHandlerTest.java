@@ -128,7 +128,8 @@ class GitHubHandlerTest {
         // Not PermanentStepException: StepExecutor retries these.
         Exception limited = assertThrows(IllegalStateException.class, () -> issue("octo/limited", null, OAUTH));
         assertTrue(limited.getMessage().contains("rate limit"));
-        assertThrows(IllegalStateException.class, () -> issue("octo/flaky", null, OAUTH));
+        // A 5xx on a create may have created it: retried, but flagged so the retry checks first.
+        assertThrows(com.bxtralabs.pod.processor.service.handlers.UncertainStepException.class, () -> issue("octo/flaky", null, OAUTH));
         GitHubHandler unreachable = new GitHubHandler(json, "http://127.0.0.1:1");
         assertThrows(IOException.class, () -> unreachable.execute(node(GitHubHandler.CREATE_ISSUE),
                 Map.of("repository", "octo/app", "title", "t"), OAUTH));

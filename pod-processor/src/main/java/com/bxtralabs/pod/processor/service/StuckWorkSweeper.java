@@ -70,9 +70,10 @@ public class StuckWorkSweeper {
             System.out.println("Sweeper: step " + step.getId() + " RUNNING since " + step.getStartedAt()
                     + " with no result, treating attempt " + step.getAttempt() + " as failed");
             try {
+                // The worker may have finished the call before dying: check before repeating it.
                 orchestrator.completeStep(step.getRunId(), step.getId(), step.getInput(), null,
                         "No result within " + (runningTimeoutMs / 1000) + "s; the worker may have crashed",
-                        true, step.getAttempt());
+                        true, step.getAttempt(), true);
             } catch (Exception e) {
                 // One bad step shouldn't stop the rest; it'll be picked up next sweep.
                 System.out.println("Sweeper: could not time out " + step.getId() + ": " + e);

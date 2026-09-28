@@ -119,6 +119,14 @@ public class Orchestrator {
     @Transactional
     public void completeStep(String runId, String stepRunId, Map<String, Object> input,
                              Map<String, Object> output, String error, boolean retryable, int attempt) {
+        completeStep(runId, stepRunId, input, output, error, retryable, attempt, false);
+    }
+
+    // uncertain: the failed attempt may have done its work anyway; later attempts check first.
+    @Transactional
+    public void completeStep(String runId, String stepRunId, Map<String, Object> input,
+                             Map<String, Object> output, String error, boolean retryable, int attempt,
+                             boolean uncertain) {
         ExecutionRun run = executionRunRepository.findByIdForUpdate(runId).orElse(null);
         if (run == null) {
             return;
@@ -149,6 +157,9 @@ public class Orchestrator {
         step.setInput(input);
         if (error != null) {
             step.setError(error);
+            if (uncertain) {
+                step.setUncertain(true);
+            }
             // Only worth waiting if the run can still use the result.
             Long nextAttemptAt = retryable && !isEnded(run) ? retryPolicy.nextAttemptAt(step.getAttempt(), now) : null;
             if (nextAttemptAt != null) {

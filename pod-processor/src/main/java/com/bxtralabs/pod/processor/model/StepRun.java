@@ -64,6 +64,12 @@ public class StepRun {
     private Long readyAt;
     private Long createdAt;
     private Long startedAt;
+    // When the first attempt started (startedAt is the current attempt's). Handlers look for
+    // what an earlier attempt may have created since then.
+    private Long firstStartedAt;
+    // An earlier attempt may have done its work without us learning so (timed out after
+    // sending, crashed mid-call...). Sticky: every later attempt checks before repeating.
+    private Boolean uncertain;
     private Long endedAt;
 
     public StepRun() {
@@ -180,6 +186,18 @@ public class StepRun {
 
     public void setCreatedAt(Long createdAt) {
         this.createdAt = createdAt;
+    }
+
+    public Long getFirstStartedAt() {
+        return firstStartedAt;
+    }
+
+    public boolean isUncertain() {
+        return uncertain != null && uncertain;
+    }
+
+    public void setUncertain(boolean uncertain) {
+        this.uncertain = uncertain;
     }
 
     public Long getStartedAt() {
