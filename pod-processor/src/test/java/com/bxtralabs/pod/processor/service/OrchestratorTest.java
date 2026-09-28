@@ -59,7 +59,7 @@ class OrchestratorTest {
     private int nextId;
 
     private static GraphNode node(String id, String kind) {
-        return new GraphNode(id, kind, "app", "item", id, null, Map.of(), null, null, null);
+        return new GraphNode(id, kind, "app", "item", id, null, Map.of(), null, null, null, null);
     }
 
     private static GraphEdge edge(String from, String to) {

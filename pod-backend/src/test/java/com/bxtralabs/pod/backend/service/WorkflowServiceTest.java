@@ -1,5 +1,7 @@
 package com.bxtralabs.pod.backend.service;
 
+import com.bxtralabs.pod.backend.catalog.CatalogService;
+import com.bxtralabs.pod.backend.catalog.StepSettingsValidator;
 import com.bxtralabs.pod.backend.common.ConflictException;
 import com.bxtralabs.pod.backend.common.NotFoundException;
 import com.bxtralabs.pod.backend.model.ConnectionView;
@@ -21,6 +23,7 @@ import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.util.List;
 import java.util.Map;
@@ -42,16 +45,31 @@ class WorkflowServiceTest {
     private ConnectionViewRepository connectionViewRepository;
     @Spy
     private GraphValidator graphValidator = new GraphValidator();
+    @Spy
+    private StepSettingsValidator stepSettingsValidator = realStepSettingsValidator();
     @InjectMocks
     private WorkflowService workflowService;
 
+    private static final GraphNode WEBHOOK = new GraphNode("t", "trigger", "Webhook", "trg_webhook_catch", "Catch Hook",
+            null, Map.of(), null, null, null, null);
+
     private static final WorkflowGraph VALID = new WorkflowGraph(
-            List.of(new GraphNode("t", "trigger", "webhook", "trg_item", "Webhook", null, Map.of(), null, null, null),
-                    new GraphNode("a", "action", "slack", "aac_item", "Send", "send_message", Map.of(), null, null, null)),
+            List.of(WEBHOOK,
+                    new GraphNode("a", "action", "HTTP", "act_http_request", "Make a Request", "http_request",
+                            Map.of("method", "GET", "url", "https://example.com"), null, null, null, null)),
             List.of(new GraphEdge("t", "a", null)));
 
+    private static StepSettingsValidator realStepSettingsValidator() {
+        try {
+            JsonMapper mapper = JsonMapper.builder().build();
+            return new StepSettingsValidator(new CatalogService(mapper), mapper);
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
     private static final WorkflowGraph INVALID = new WorkflowGraph(
-            List.of(new GraphNode("a", "action", "slack", "aac_item", "Send", "send_message", Map.of(), null, null, null)),
+            List.of(new GraphNode("a", "action", "slack", "aac_item", "Send", "send_message", Map.of(), null, null, null, null)),
             List.of());
 
     @BeforeEach
@@ -79,12 +97,12 @@ class WorkflowServiceTest {
         verify(workflowVersionRepository).saveAndFlush(saved.capture());
         assertEquals(1, saved.getValue().getVersion());
         assertEquals("wfl_new", saved.getValue().getWorkflowId());
-        assertSame(VALID, saved.getValue().getGraph());
+        assertEquals(List.of("t", "a"), saved.getValue().getGraph().nodes().stream().map(GraphNode::id).toList());
 
         assertEquals("wfv_1", w.getCurrentVersionId());
         assertEquals("usr_1", w.getUserId());
         assertEquals("My flow", w.getName());
-        assertEquals("trg_item", w.getTriggerId());
+        assertEquals("trg_webhook_catch", w.getTriggerId());
     }
 
     @Test
@@ -120,9 +138,9 @@ class WorkflowServiceTest {
     // Trigger plus one GitHub step using the given connection.
     private static WorkflowGraph withConnection(String appId, String connectionId) {
         return new WorkflowGraph(
-                List.of(new GraphNode("t", "trigger", "webhook", "trg_item", "Webhook", null, Map.of(), null, null, null),
+                List.of(WEBHOOK,
                         new GraphNode("a", "action", "GitHub", "act_github_create_issue", "Create Issue", "action",
-                                Map.of(), null, appId, connectionId)),
+                                Map.of("repository", "octo/repo", "title", "Hi"), null, appId, connectionId, null)),
                 List.of(new GraphEdge("t", "a", null)));
     }
 
@@ -195,5 +213,33 @@ class WorkflowServiceTest {
         assertTrue(e.getMessage().contains("changed since you opened it"), e.getMessage());
         verify(workflowVersionRepository, never()).saveAndFlush(any());
         assertEquals("wfv_4", existing.getCurrentVersionId());
+    }
+
+    @Test
+    void savedStepsTakeTheirAppNameAndHandlerFromTheCatalog() {
+        // A client claiming a GitHub step runs the HTTP handler (or naming it anything) doesn't stick.
+        GraphNode sneaky = new GraphNode("a", "action", "Whatever", "act_github_create_issue", "Renamed", "http_request",
+                Map.of("repository", "octo/repo", "title", "Hi", "made_up", "x"), null, null, null, null);
+        workflowService.create("usr_1", "Flow", new WorkflowGraph(List.of(WEBHOOK, sneaky), List.of(new GraphEdge("t", "a", null))));
+
+        ArgumentCaptor<WorkflowVersion> saved = ArgumentCaptor.forClass(WorkflowVersion.class);
+        verify(workflowVersionRepository).saveAndFlush(saved.capture());
+        GraphNode stored = saved.getValue().getGraph().nodes().get(1);
+        assertEquals("github.create_issue", stored.type());
+        assertEquals("GitHub", stored.appName());
+        assertEquals("app_github", stored.appId());
+        assertEquals("Create Issue", stored.name());
+        assertEquals(Map.of("repository", "octo/repo", "title", "Hi"), stored.parameters(), "unknown settings are dropped");
+        assertTrue(stored.fields().stream().anyMatch(f -> f.key().equals("title") && f.required()), "rules are stamped for the run");
+    }
+
+    @Test
+    void badSettingsAreRejectedBeforeAnythingIsSaved() {
+        GraphNode missingTitle = new GraphNode("a", "action", "GitHub", "act_github_create_issue", "Create Issue", null,
+                Map.of("repository", "octo/repo"), null, null, null, null);
+        Exception e = assertThrows(IllegalArgumentException.class, () -> workflowService.create("usr_1", "Flow",
+                new WorkflowGraph(List.of(WEBHOOK, missingTitle), List.of(new GraphEdge("t", "a", null)))));
+        assertEquals("Step \"Create Issue\" needs Title", e.getMessage());
+        verify(workflowRepository, never()).save(any());
     }
 }

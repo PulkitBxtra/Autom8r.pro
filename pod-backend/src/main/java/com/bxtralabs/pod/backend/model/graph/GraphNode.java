@@ -1,5 +1,6 @@
 package com.bxtralabs.pod.backend.model.graph;
 
+import java.util.List;
 import java.util.Map;
 
 // One step in the graph: either the single trigger, or an action.
@@ -17,7 +18,9 @@ public record GraphNode(
         // before steps could use connections.
         String appId,
         // The user's connection (pod-connector) this step acts through; null if it needs none.
-        String connectionId
+        String connectionId,
+        // Its settings' rules, stamped from the catalog on save. Null in graphs saved before that.
+        List<FieldSpec> fields
 ) {
     public static final String KIND_TRIGGER = "trigger";
     public static final String KIND_ACTION = "action";

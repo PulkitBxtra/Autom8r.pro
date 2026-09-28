@@ -35,6 +35,9 @@ public class StepExecutor {
     private TemplateResolver templateResolver;
 
     @Autowired
+    private StepInputChecker inputChecker;
+
+    @Autowired
     private ActionHandlerRegistry handlers;
 
     @Autowired
@@ -64,6 +67,8 @@ public class StepExecutor {
             // Parents are finished, so their outputs are final; reading them without the run lock is safe.
             List<StepRun> steps = stepRunRepository.findByRunId(runId);
             input = templateResolver.resolveParameters(node.parameters(), TemplateResolver.context(graph, steps));
+            // If the check fails, the run shows the input as resolved, which is what the user needs to see.
+            input = inputChecker.check(node, input);
             output = handlers.handlerFor(node).execute(node, input);
         } catch (PermanentStepException e) {
             error = e.getMessage();

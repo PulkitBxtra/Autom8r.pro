@@ -16,7 +16,7 @@ class GraphValidatorTest {
     private final GraphValidator validator = new GraphValidator();
 
     private static GraphNode trigger(String id) {
-        return new GraphNode(id, "trigger", "webhook", "trg_item", "Webhook", null, Map.of(), null, null, null);
+        return new GraphNode(id, "trigger", "webhook", "trg_item", "Webhook", null, Map.of(), null, null, null, null);
     }
 
     private static GraphNode action(String id) {
@@ -24,7 +24,7 @@ class GraphValidatorTest {
     }
 
     private static GraphNode action(String id, Map<String, Object> parameters) {
-        return new GraphNode(id, "action", "slack", "aac_item", "Send message", "send_message", parameters, null, null, null);
+        return new GraphNode(id, "action", "slack", "aac_item", "Send message", "send_message", parameters, null, null, null, null);
     }
 
     private static GraphEdge edge(String from, String to) {
@@ -90,13 +90,13 @@ class GraphValidatorTest {
 
     @Test
     void rejectsUnknownKind() {
-        GraphNode weird = new GraphNode("x", "loop", "slack", "aac_item", "X", null, Map.of(), null, null, null);
+        GraphNode weird = new GraphNode("x", "loop", "slack", "aac_item", "X", null, Map.of(), null, null, null, null);
         assertRejected(new WorkflowGraph(List.of(trigger("t"), weird), List.of(edge("t", "x"))), "unknown kind");
     }
 
     @Test
     void rejectsUnconfiguredStep() {
-        GraphNode empty = new GraphNode("a", "action", null, null, null, null, Map.of(), null, null, null);
+        GraphNode empty = new GraphNode("a", "action", null, null, null, null, Map.of(), null, null, null, null);
         assertRejected(new WorkflowGraph(List.of(trigger("t"), empty), List.of(edge("t", "a"))), "no app selected");
     }
 

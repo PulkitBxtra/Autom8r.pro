@@ -1,5 +1,6 @@
 package com.bxtralabs.pod.backend.service;
 
+import com.bxtralabs.pod.backend.catalog.StepSettingsValidator;
 import com.bxtralabs.pod.backend.common.ConflictException;
 import com.bxtralabs.pod.backend.common.NotFoundException;
 import com.bxtralabs.pod.backend.model.ConnectionView;
@@ -33,6 +34,9 @@ public class WorkflowService {
     private GraphValidator graphValidator;
 
     @Autowired
+    private StepSettingsValidator stepSettingsValidator;
+
+    @Autowired
     private ConnectionViewRepository connectionViewRepository;
 
     public List<Workflow> listForUser(String userId) {
@@ -62,6 +66,7 @@ public class WorkflowService {
     public Workflow create(String userId, String name, WorkflowGraph graph) {
         // Validate before inserting anything, so a bad graph never leaves an empty workflow behind.
         graphValidator.validate(graph);
+        graph = stepSettingsValidator.normalize(graph);
         checkConnections(userId, graph);
 
         Workflow workflow = new Workflow();
@@ -79,6 +84,7 @@ public class WorkflowService {
     @Transactional
     public Workflow update(String id, String userId, String name, WorkflowGraph graph, String baseVersionId) {
         graphValidator.validate(graph);
+        graph = stepSettingsValidator.normalize(graph);
         Workflow workflow = getForUser(id, userId);
         if (baseVersionId != null && !baseVersionId.equals(workflow.getCurrentVersionId())) {
             throw new ConflictException("This workflow was changed since you opened it. Reload to see the latest version.");

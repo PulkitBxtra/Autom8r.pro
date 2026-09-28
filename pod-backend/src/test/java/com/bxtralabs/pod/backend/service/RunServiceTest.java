@@ -33,7 +33,7 @@ class RunServiceTest {
             new RunService(workflowService, workflowRepository, versionRepository, runRepository, stepRepository);
 
     private static final WorkflowGraph GRAPH = new WorkflowGraph(
-            List.of(new GraphNode("t", "trigger", "Webhook", "x", null, null, Map.of(), null, null, null)), List.of());
+            List.of(new GraphNode("t", "trigger", "Webhook", "x", null, null, Map.of(), null, null, null, null)), List.of());
 
     private static ExecutionRun run(String id, String workflowId, String versionId, String status, Map<String, Object> metadata) {
         ExecutionRun r = new ExecutionRun(id, status, 1000L, 2000L, metadata, null);
