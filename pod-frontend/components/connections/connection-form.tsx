@@ -89,7 +89,8 @@ export function CredentialsForm({
 }: {
   app: ConnectorInfo;
   reconnect: AppConnection | null;
-  onSaved: () => void;
+  // Handed the saved connection's id.
+  onSaved: (connectionId: string | null) => void;
 }) {
   const { token } = useAuth();
   const [values, setValues] = useState<Record<string, string>>({});
@@ -114,12 +115,10 @@ export function CredentialsForm({
     setSaving(true);
     setError(null);
     try {
-      if (reconnect) {
-        await reconnectConnection(reconnect.id, values, token);
-      } else {
-        await createConnection(app.appId, values, token);
-      }
-      onSaved();
+      const saved = reconnect
+        ? await reconnectConnection(reconnect.id, values, token)
+        : await createConnection(app.appId, values, token);
+      onSaved(saved.id);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : `Couldn't connect ${app.name}`);
     } finally {
@@ -235,7 +234,7 @@ function useOAuthPopup({
 }: {
   app: ConnectorInfo;
   connectionId?: string;
-  onSuccess: () => void;
+  onSuccess: (connectionId: string | null) => void;
   onError: (message: string | null) => void;
 }) {
   const { token } = useAuth();
@@ -254,7 +253,7 @@ function useOAuthPopup({
       if (!result || result.type !== "autom8r-oauth" || (result.appId && result.appId !== app.appId)) return;
       setWaiting(false);
       if (result.status === "success") {
-        handlers.current.onSuccess();
+        handlers.current.onSuccess(result.connectionId);
       } else {
         handlers.current.onError(result.message ?? "Sign-in didn't complete.");
       }

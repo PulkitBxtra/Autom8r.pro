@@ -38,6 +38,10 @@ export type GraphNode = {
   type?: string | null;
   parameters?: Record<string, unknown> | null;
   position?: { x: number; y: number } | null;
+  // Catalog app id (app_github...). Missing in graphs saved before steps used connections.
+  appId?: string | null;
+  // The pod-connector connection this step acts through; null if none is chosen.
+  connectionId?: string | null;
 };
 
 export type GraphEdge = {

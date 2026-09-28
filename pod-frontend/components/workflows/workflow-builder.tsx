@@ -15,8 +15,8 @@ import {
   orderSteps,
   toWorkflowGraph,
   TRIGGER_NODE_ID,
+  type GraphNodeData,
 } from "@/lib/workflow-graph";
-import type { App, AppAction, AppTrigger } from "@/lib/types";
 
 export function WorkflowBuilder() {
   const { token } = useAuth();
@@ -42,10 +42,10 @@ export function WorkflowBuilder() {
 
   const selectedNode = nodes.find((n) => n.id === selectedNodeId);
 
-  function handleSelectAppItem(app: App, item: AppTrigger | AppAction | undefined) {
+  function handleChangeStep(patch: Partial<GraphNodeData>) {
     setNodes((nds) =>
       nds.map((n) =>
-        n.id === selectedNodeId ? { ...n, data: { ...n.data, app, item } } : n
+        n.id === selectedNodeId ? { ...n, data: { ...n.data, ...patch } } : n
       )
     );
   }
@@ -119,7 +119,7 @@ export function WorkflowBuilder() {
           node={selectedNode}
           stepNumber={stepNumbers.get(selectedNode.id) ?? 1}
           onClose={() => setSelectedNodeId(null)}
-          onSelectAppItem={handleSelectAppItem}
+          onChange={handleChangeStep}
         />
       )}
     </div>

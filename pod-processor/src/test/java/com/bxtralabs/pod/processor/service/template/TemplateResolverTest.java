@@ -24,8 +24,8 @@ class TemplateResolverTest {
 
     private final Map<String, Object> context = TemplateResolver.context(
             new WorkflowGraph(List.of(
-                    new GraphNode("t", "trigger", "Gmail", "x", null, null, null, null),
-                    new GraphNode("action-1", "action", "HTTP", "y", null, "http_request", null, null)), List.of()),
+                    new GraphNode("t", "trigger", "Gmail", "x", null, null, null, null, null, null),
+                    new GraphNode("action-1", "action", "HTTP", "y", null, "http_request", null, null, null, null)), List.of()),
             List.of(
                     step("t", StepStatus.SUCCEEDED, Map.of("body", Map.of(
                             "order", Map.of("id", 42, "paid", true, "total", 19.5),

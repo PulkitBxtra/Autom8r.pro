@@ -2,11 +2,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
-import { MoreVertical, Trash2, Zap } from "lucide-react";
+import { AlertTriangle, MoreVertical, Trash2, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AppLogo } from "@/components/ui/app-logo";
 import type { WorkflowNode } from "@/lib/workflow-graph";
 import { useCanvasActions } from "./canvas-actions-context";
+import { useStepConnection } from "@/components/workflows/step-connections";
 import { STEP_BORDER, StepStatusBadge, stepDidNotRun, useRunStep } from "@/components/workflows/run-status";
 
 export function GraphNode({ id, data, selected }: NodeProps<WorkflowNode>) {
@@ -76,9 +77,7 @@ export function GraphNode({ id, data, selected }: NodeProps<WorkflowNode>) {
           <p className="truncate text-sm font-bold">
             {data.item?.name ?? (isTrigger ? "Choose a trigger" : "Choose an action")}
           </p>
-          {data.app && (
-            <p className="truncate text-xs text-text-muted">{data.app.name}</p>
-          )}
+          {data.app && <AppLine appId={data.app.id} appName={data.app.name} connectionId={data.connectionId} />}
         </div>
       </button>
 
@@ -118,5 +117,39 @@ export function GraphNode({ id, data, selected }: NodeProps<WorkflowNode>) {
         className="!size-2.5 !border-2 !border-surface !bg-border-strong"
       />
     </div>
+  );
+}
+
+// The app, plus which account the step uses, or what's wrong with it.
+function AppLine({
+  appId,
+  appName,
+  connectionId,
+}: {
+  appId: string;
+  appName: string;
+  connectionId: string | null | undefined;
+}) {
+  const { connector, chosen, missing, loading, error } = useStepConnection(appId, connectionId);
+  let problem: string | null = null;
+  if (connector && !loading && !error) {
+    if (missing) problem = "Account removed";
+    else if (!connectionId) problem = "Choose an account";
+    else if (chosen?.status === "NEEDS_REAUTH") problem = "Account needs reconnecting";
+  }
+
+  if (problem) {
+    return (
+      <p className="flex items-center gap-1 truncate text-xs text-amber-400">
+        <AlertTriangle className="size-3 shrink-0" />
+        {problem}
+      </p>
+    );
+  }
+  return (
+    <p className="truncate text-xs text-text-muted">
+      {appName}
+      {chosen?.label && ` · ${chosen.label}`}
+    </p>
   );
 }

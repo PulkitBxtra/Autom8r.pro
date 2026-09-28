@@ -1,11 +1,13 @@
 package com.bxtralabs.pod.backend.service;
 
 import com.bxtralabs.pod.backend.common.NotFoundException;
+import com.bxtralabs.pod.backend.model.ConnectionView;
 import com.bxtralabs.pod.backend.model.Workflow;
 import com.bxtralabs.pod.backend.model.WorkflowVersion;
 import com.bxtralabs.pod.backend.model.graph.GraphEdge;
 import com.bxtralabs.pod.backend.model.graph.GraphNode;
 import com.bxtralabs.pod.backend.model.graph.WorkflowGraph;
+import com.bxtralabs.pod.backend.repository.ConnectionViewRepository;
 import com.bxtralabs.pod.backend.repository.WorkflowRepository;
 import com.bxtralabs.pod.backend.repository.WorkflowVersionRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -35,18 +37,20 @@ class WorkflowServiceTest {
     private WorkflowRepository workflowRepository;
     @Mock
     private WorkflowVersionRepository workflowVersionRepository;
+    @Mock
+    private ConnectionViewRepository connectionViewRepository;
     @Spy
     private GraphValidator graphValidator = new GraphValidator();
     @InjectMocks
     private WorkflowService workflowService;
 
     private static final WorkflowGraph VALID = new WorkflowGraph(
-            List.of(new GraphNode("t", "trigger", "webhook", "trg_item", "Webhook", null, Map.of(), null),
-                    new GraphNode("a", "action", "slack", "aac_item", "Send", "send_message", Map.of(), null)),
+            List.of(new GraphNode("t", "trigger", "webhook", "trg_item", "Webhook", null, Map.of(), null, null, null),
+                    new GraphNode("a", "action", "slack", "aac_item", "Send", "send_message", Map.of(), null, null, null)),
             List.of(new GraphEdge("t", "a", null)));
 
     private static final WorkflowGraph INVALID = new WorkflowGraph(
-            List.of(new GraphNode("a", "action", "slack", "aac_item", "Send", "send_message", Map.of(), null)),
+            List.of(new GraphNode("a", "action", "slack", "aac_item", "Send", "send_message", Map.of(), null, null, null)),
             List.of());
 
     @BeforeEach
@@ -109,6 +113,73 @@ class WorkflowServiceTest {
     void invalidGraphSavesNothing() {
         assertThrows(IllegalArgumentException.class, () -> workflowService.create("usr_1", "Bad", INVALID));
         verify(workflowRepository, never()).save(any());
+        verify(workflowVersionRepository, never()).saveAndFlush(any());
+    }
+
+    // Trigger plus one GitHub step using the given connection.
+    private static WorkflowGraph withConnection(String appId, String connectionId) {
+        return new WorkflowGraph(
+                List.of(new GraphNode("t", "trigger", "webhook", "trg_item", "Webhook", null, Map.of(), null, null, null),
+                        new GraphNode("a", "action", "GitHub", "act_github_create_issue", "Create Issue", "action",
+                                Map.of(), null, appId, connectionId)),
+                List.of(new GraphEdge("t", "a", null)));
+    }
+
+    @Test
+    void aStepCanUseTheUsersOwnConnectionForItsApp() {
+        when(connectionViewRepository.findAllById(List.of("con_1")))
+                .thenReturn(List.of(new ConnectionView("con_1", "usr_1", "app_github")));
+
+        workflowService.create("usr_1", "My flow", withConnection("app_github", "con_1"));
+
+        verify(workflowVersionRepository).saveAndFlush(any());
+    }
+
+    @Test
+    void graphsWithoutConnectionsDontLookAnyUp() {
+        workflowService.create("usr_1", "My flow", VALID);
+        verifyNoInteractions(connectionViewRepository);
+    }
+
+    @Test
+    void someoneElsesOrAMissingConnectionIsRejectedTheSameWay() {
+        when(connectionViewRepository.findAllById(List.of("con_theirs")))
+                .thenReturn(List.of(new ConnectionView("con_theirs", "usr_other", "app_github")));
+        when(connectionViewRepository.findAllById(List.of("con_gone"))).thenReturn(List.of());
+
+        Exception theirs = assertThrows(IllegalArgumentException.class,
+                () -> workflowService.create("usr_1", "Flow", withConnection("app_github", "con_theirs")));
+        Exception gone = assertThrows(IllegalArgumentException.class,
+                () -> workflowService.create("usr_1", "Flow", withConnection("app_github", "con_gone")));
+
+        assertEquals(gone.getMessage(), theirs.getMessage());
+        assertTrue(gone.getMessage().contains("\"Create Issue\" no longer exists"), gone.getMessage());
+        verify(workflowRepository, never()).save(any());
+    }
+
+    @Test
+    void aConnectionForAnotherAppIsRejected() {
+        when(connectionViewRepository.findAllById(List.of("con_1")))
+                .thenReturn(List.of(new ConnectionView("con_1", "usr_1", "app_slack")));
+
+        Exception e = assertThrows(IllegalArgumentException.class,
+                () -> workflowService.create("usr_1", "Flow", withConnection("app_github", "con_1")));
+        assertTrue(e.getMessage().contains("different app"), e.getMessage());
+
+        // A step that doesn't say which app it is can't be matched to a connection either.
+        assertThrows(IllegalArgumentException.class,
+                () -> workflowService.create("usr_1", "Flow", withConnection(null, "con_1")));
+        verify(workflowVersionRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void updateChecksConnectionsToo() {
+        when(workflowRepository.findById("wfl_1"))
+                .thenReturn(Optional.of(new Workflow("wfl_1", "Old", "trg_item", "usr_1", null)));
+        when(connectionViewRepository.findAllById(List.of("con_gone"))).thenReturn(List.of());
+
+        assertThrows(IllegalArgumentException.class,
+                () -> workflowService.update("wfl_1", "usr_1", "Flow", withConnection("app_github", "con_gone")));
         verify(workflowVersionRepository, never()).saveAndFlush(any());
     }
 }

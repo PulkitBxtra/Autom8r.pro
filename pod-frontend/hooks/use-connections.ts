@@ -7,7 +7,8 @@ import { ApiError } from "@/lib/api/client";
 import type { AppConnection, ConnectorInfo, OAuthClient } from "@/lib/types";
 
 // The caller's connections, their own OAuth apps, and the connectable apps, from pod-connector.
-export function useConnections() {
+// withOAuthClients: false skips the OAuth apps for screens that don't show them.
+export function useConnections({ withOAuthClients = true }: { withOAuthClients?: boolean } = {}) {
   const { token } = useAuth();
   const [connections, setConnections] = useState<AppConnection[]>([]);
   const [connectors, setConnectors] = useState<ConnectorInfo[]>([]);
@@ -22,7 +23,7 @@ export function useConnections() {
       const [list, apps, clients] = await Promise.all([
         listConnections(token),
         listConnectors(token),
-        listOAuthClients(token),
+        withOAuthClients ? listOAuthClients(token) : Promise.resolve([]),
       ]);
       setConnections(list);
       setConnectors(apps);
@@ -36,7 +37,7 @@ export function useConnections() {
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, [token, withOAuthClients]);
 
   useEffect(() => {
     // refresh() is also exposed for re-fetching after a change; the setState

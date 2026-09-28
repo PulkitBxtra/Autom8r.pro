@@ -1,10 +1,12 @@
 package com.bxtralabs.pod.backend.service;
 
 import com.bxtralabs.pod.backend.common.NotFoundException;
+import com.bxtralabs.pod.backend.model.ConnectionView;
 import com.bxtralabs.pod.backend.model.Workflow;
 import com.bxtralabs.pod.backend.model.WorkflowVersion;
 import com.bxtralabs.pod.backend.model.graph.GraphNode;
 import com.bxtralabs.pod.backend.model.graph.WorkflowGraph;
+import com.bxtralabs.pod.backend.repository.ConnectionViewRepository;
 import com.bxtralabs.pod.backend.repository.WorkflowRepository;
 import com.bxtralabs.pod.backend.repository.WorkflowVersionRepository;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -12,6 +14,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 @Service
 public class WorkflowService {
@@ -24,6 +30,9 @@ public class WorkflowService {
 
     @Autowired
     private GraphValidator graphValidator;
+
+    @Autowired
+    private ConnectionViewRepository connectionViewRepository;
 
     public List<Workflow> listForUser(String userId) {
         return workflowRepository.findByUserId(userId);
@@ -52,6 +61,7 @@ public class WorkflowService {
     public Workflow create(String userId, String name, WorkflowGraph graph) {
         // Validate before inserting anything, so a bad graph never leaves an empty workflow behind.
         graphValidator.validate(graph);
+        checkConnections(userId, graph);
 
         Workflow workflow = new Workflow();
         workflow.setName(name);
@@ -66,12 +76,44 @@ public class WorkflowService {
     @Transactional
     public Workflow update(String id, String userId, String name, WorkflowGraph graph) {
         graphValidator.validate(graph);
-
         Workflow workflow = getForUser(id, userId);
+        checkConnections(userId, graph);
+
         workflow.setName(name);
 
         saveNewVersion(workflow, graph);
         return workflowRepository.save(workflow);
+    }
+
+    // A step may only use one of the saving user's own connections, made for the step's app.
+    // Someone else's connection gets the same message as a missing one, so ids can't be probed.
+    private void checkConnections(String userId, WorkflowGraph graph) {
+        List<String> ids = graph.nodes().stream()
+                .map(GraphNode::connectionId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        if (ids.isEmpty()) {
+            return;
+        }
+        Map<String, ConnectionView> found = connectionViewRepository.findAllById(ids).stream()
+                .collect(Collectors.toMap(ConnectionView::getId, Function.identity()));
+
+        for (GraphNode node : graph.nodes()) {
+            if (node.connectionId() == null) {
+                continue;
+            }
+            String step = node.name() == null || node.name().isBlank() ? node.id() : node.name();
+            ConnectionView connection = found.get(node.connectionId());
+            if (connection == null || !userId.equals(connection.getUserId())) {
+                throw new IllegalArgumentException(
+                        "The connection chosen for step \"" + step + "\" no longer exists; pick another one");
+            }
+            if (!connection.getAppId().equals(node.appId())) {
+                throw new IllegalArgumentException(
+                        "The connection chosen for step \"" + step + "\" is for a different app");
+            }
+        }
     }
 
     private void saveNewVersion(Workflow workflow, WorkflowGraph graph) {

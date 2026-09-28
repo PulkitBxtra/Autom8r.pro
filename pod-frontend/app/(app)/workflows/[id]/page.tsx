@@ -10,6 +10,7 @@ import { FullPageSpinner } from "@/components/ui/spinner";
 import { EmptyState } from "@/components/ui/empty-state";
 import { WorkflowCanvas } from "@/components/workflows/canvas/workflow-canvas";
 import { StepPanel } from "@/components/workflows/canvas/step-panel";
+import { StepConnectionsProvider } from "@/components/workflows/step-connections";
 import { RunHistory } from "@/components/workflows/run-history";
 import { RunStatusBadge, RunStepsContext } from "@/components/workflows/run-status";
 import { useAuth } from "@/lib/auth-context";
@@ -124,7 +125,7 @@ export default function WorkflowDetailPage({
     runDetail.run.version !== workflow.version;
 
   return (
-    <>
+    <StepConnectionsProvider>
       <Topbar title={workflow?.name ?? "Workflow"} />
 
       {loading && <FullPageSpinner />}
@@ -241,6 +242,6 @@ export default function WorkflowDetailPage({
           </div>
         </div>
       )}
-    </>
+    </StepConnectionsProvider>
   );
 }

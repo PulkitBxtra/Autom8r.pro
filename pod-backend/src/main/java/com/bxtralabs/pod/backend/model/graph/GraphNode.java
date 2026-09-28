@@ -12,7 +12,12 @@ public record GraphNode(
         String name,
         String type,
         Map<String, Object> parameters,
-        Position position
+        Position position,
+        // Catalog app id (app_github, ...), which a connection is tied to. Null in graphs saved
+        // before steps could use connections.
+        String appId,
+        // The user's connection (pod-connector) this step acts through; null if it needs none.
+        String connectionId
 ) {
     public static final String KIND_TRIGGER = "trigger";
     public static final String KIND_ACTION = "action";

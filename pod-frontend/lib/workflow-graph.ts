@@ -15,6 +15,8 @@ export type GraphNodeData = {
   item?: AppTrigger | AppAction;
   // Carried through untouched so a load -> save round-trip never drops config.
   parameters?: Record<string, unknown>;
+  // The user's connection (account) for the step's app, if it has one chosen.
+  connectionId?: string | null;
 };
 
 export type WorkflowNode = Node<GraphNodeData, "workflowNode">;
@@ -141,6 +143,8 @@ export function toWorkflowGraph(
           type: "type" in n.data.item! ? n.data.item.type : null,
           parameters: n.data.parameters ?? {},
           position: { x: n.position.x, y: n.position.y },
+          appId: n.data.app!.id,
+          connectionId: n.data.connectionId ?? null,
         })
       ),
       edges: keptEdges.map((e) => ({
@@ -155,7 +159,7 @@ export function toWorkflowGraph(
 // Catalog lookup with a fallback built from what the graph stored, so a step
 // whose app later disappears from the catalog still renders with its name.
 function resolveNodeItem(node: GraphNode): { app: App; item: AppTrigger | AppAction } {
-  const fallbackApp: App = { id: node.appName, name: node.appName, actions: [], triggers: [] };
+  const fallbackApp: App = { id: node.appId ?? node.appName, name: node.appName, actions: [], triggers: [] };
 
   if (node.kind === "trigger") {
     const found = findAppTrigger(node.itemId);
@@ -186,7 +190,12 @@ export function buildGraphFromWorkflow(workflow: Workflow): {
         id: n.id,
         type: "workflowNode",
         position: n.position ?? { x: 0, y: i * CHILD_Y_SPACING },
-        data: { kind: n.kind, ...resolveNodeItem(n), parameters: n.parameters ?? {} },
+        data: {
+          kind: n.kind,
+          ...resolveNodeItem(n),
+          parameters: n.parameters ?? {},
+          connectionId: n.connectionId ?? null,
+        },
       })),
       edges: workflow.graph.edges.map((e) => ({
         id: `edge-${e.from}-${e.to}`,

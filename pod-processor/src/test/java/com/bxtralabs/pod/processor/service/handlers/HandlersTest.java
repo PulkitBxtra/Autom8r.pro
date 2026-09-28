@@ -32,7 +32,7 @@ class HandlersTest {
     private final AtomicReference<String> lastAuth = new AtomicReference<>();
 
     private static GraphNode node(String app, String type) {
-        return new GraphNode("n1", "action", app, "item", "Do thing", type, Map.of(), null);
+        return new GraphNode("n1", "action", app, "item", "Do thing", type, Map.of(), null, null, null);
     }
 
     @BeforeEach

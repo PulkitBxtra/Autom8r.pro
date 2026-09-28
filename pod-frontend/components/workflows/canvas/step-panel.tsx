@@ -1,14 +1,17 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronRight, Search, X } from "lucide-react";
+import Link from "next/link";
+import { AlertTriangle, ChevronRight, Plus, Search, X } from "lucide-react";
 import { cn, formatDuration } from "@/lib/utils";
 import { AppLogo } from "@/components/ui/app-logo";
 import { APP_CATALOG } from "@/lib/mock-catalog";
 import { Input } from "@/components/ui/input";
 import { StepStatusBadge } from "@/components/workflows/run-status";
-import type { App, AppAction, AppTrigger, StepDetail } from "@/lib/types";
-import type { WorkflowNode } from "@/lib/workflow-graph";
+import { useStepConnection, useStepConnections } from "@/components/workflows/step-connections";
+import { CredentialsForm } from "@/components/connections/connection-form";
+import type { App, AppConnection, StepDetail } from "@/lib/types";
+import type { GraphNodeData, WorkflowNode } from "@/lib/workflow-graph";
 
 type Tab = "setup" | "configure" | "test";
 const TABS: { id: Tab; label: string }[] = [
@@ -22,14 +25,15 @@ export function StepPanel({
   stepNumber,
   readOnly = false,
   onClose,
-  onSelectAppItem,
+  onChange,
   run,
 }: {
   node: WorkflowNode;
   stepNumber: number;
   readOnly?: boolean;
   onClose: () => void;
-  onSelectAppItem?: (app: App, item: AppTrigger | AppAction | undefined) => void;
+  // Applies an edit to this step's data (app, event, connection).
+  onChange?: (patch: Partial<GraphNodeData>) => void;
   // The run being viewed, if any: whether one is selected, and this step's part in it.
   run?: { selected: boolean; step: StepDetail | null; now: number };
 }) {
@@ -37,6 +41,7 @@ export function StepPanel({
   const [tab, setTab] = useState<Tab>(run?.selected ? "test" : "setup");
   const [appPickerOpen, setAppPickerOpen] = useState(!node.data.app);
   const [query, setQuery] = useState("");
+  const { connections } = useStepConnections();
 
   const isTrigger = node.data.kind === "trigger";
   const kindLabel = isTrigger ? "Trigger event" : "Action event";
@@ -47,16 +52,17 @@ export function StepPanel({
     : [];
 
   function handlePickApp(app: App) {
-    // Changing the app resets the previously chosen event -- it belonged
-    // to a different app's trigger/action list.
-    onSelectAppItem?.(app, undefined);
+    // Changing the app resets the previously chosen event and account -- they
+    // belonged to the other app. With exactly one account for the new app, use it.
+    const accounts = connections.filter((c) => c.appId === app.id);
+    onChange?.({ app, item: undefined, connectionId: accounts.length === 1 ? accounts[0].id : null });
     setAppPickerOpen(false);
   }
 
   function handlePickEvent(itemId: string) {
     if (!node.data.app) return;
     const item = events.find((e) => e.id === itemId);
-    if (item) onSelectAppItem?.(node.data.app, item);
+    if (item) onChange?.({ item });
   }
 
   const filteredApps = APP_CATALOG.filter((app) =>
@@ -187,6 +193,15 @@ export function StepPanel({
                 </select>
               )}
             </div>
+
+            {node.data.app && (
+              <AccountSection
+                app={node.data.app}
+                connectionId={node.data.connectionId}
+                readOnly={readOnly}
+                onSelect={(connectionId) => onChange?.({ connectionId })}
+              />
+            )}
           </div>
         )}
 
@@ -217,6 +232,154 @@ export function StepPanel({
       </div>
     </div>
   );
+}
+
+// Which of the user's accounts (connections) this step acts through. Hidden for apps that
+// don't take one. Picking only ever references a saved connection; new ones are added here
+// through the same form as the Connections page, then selected.
+function AccountSection({
+  app,
+  connectionId,
+  readOnly,
+  onSelect,
+}: {
+  app: App;
+  connectionId: string | null | undefined;
+  readOnly: boolean;
+  onSelect: (connectionId: string | null) => void;
+}) {
+  const { connector, connections, chosen, missing, loading, error, refresh } = useStepConnection(
+    app.id,
+    connectionId
+  );
+  const [adding, setAdding] = useState(false);
+
+  if (!connector && !(readOnly && connectionId)) return null;
+
+  const heading = (
+    <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-text-muted">
+      {app.name} account
+    </p>
+  );
+
+  if (loading) {
+    return (
+      <div>
+        {heading}
+        <div className="h-11 animate-pulse rounded-lg bg-white/5" />
+      </div>
+    );
+  }
+  if (error) {
+    return (
+      <div>
+        {heading}
+        <p className="text-sm text-red-400">
+          Couldn&apos;t load your accounts: {error.message}{" "}
+          <button onClick={() => refresh()} className="font-semibold text-lemon hover:underline">
+            Retry
+          </button>
+        </p>
+      </div>
+    );
+  }
+
+  if (readOnly) {
+    return (
+      <div>
+        {heading}
+        <div className="rounded-xl border border-border-strong bg-surface-sunken px-4 py-3 text-sm font-medium text-text">
+          {chosen ? accountLabel(chosen) : missing ? "Removed since this was saved" : "None chosen"}
+        </div>
+        {chosen && <AccountWarning connection={chosen} />}
+      </div>
+    );
+  }
+
+  const showForm = adding || connections.length === 0;
+
+  return (
+    <div>
+      {heading}
+      {connections.length > 0 && (
+        <select
+          aria-label={`${app.name} account`}
+          value={chosen ? chosen.id : ""}
+          onChange={(e) => onSelect(e.target.value || null)}
+          className="h-11 w-full rounded-lg border border-border-strong bg-surface-sunken px-3.5 text-sm text-text outline-none transition-colors focus:border-lemon"
+        >
+          <option value="" disabled>
+            {missing ? "The chosen account was removed; pick another" : "Select an account"}
+          </option>
+          {connections.map((c) => (
+            <option key={c.id} value={c.id}>
+              {accountLabel(c)}
+              {c.status === "NEEDS_REAUTH" ? " (needs reconnecting)" : ""}
+            </option>
+          ))}
+        </select>
+      )}
+      {chosen && <AccountWarning connection={chosen} />}
+
+      {showForm ? (
+        <div className="mt-3 rounded-xl border border-border-strong bg-surface-sunken/50 p-4">
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <p className="text-sm font-semibold">
+              {connections.length === 0 ? `Connect your ${app.name} account` : `Connect another ${app.name} account`}
+            </p>
+            {connections.length > 0 && (
+              <button
+                onClick={() => setAdding(false)}
+                className="text-xs font-medium text-text-muted hover:text-text"
+              >
+                Cancel
+              </button>
+            )}
+          </div>
+          <CredentialsForm
+            app={connector!}
+            reconnect={null}
+            onSaved={async (id) => {
+              await refresh();
+              if (id) onSelect(id);
+              setAdding(false);
+            }}
+          />
+        </div>
+      ) : (
+        <button
+          onClick={() => setAdding(true)}
+          className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-lemon hover:underline"
+        >
+          <Plus className="size-3.5" />
+          Connect another {app.name} account
+        </button>
+      )}
+    </div>
+  );
+}
+
+function AccountWarning({ connection }: { connection: AppConnection }) {
+  if (connection.status !== "NEEDS_REAUTH") return null;
+  return (
+    <p className="mt-2 flex items-start gap-1.5 text-xs text-amber-400">
+      <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+      <span>
+        This account needs reconnecting before the step can use it.{" "}
+        <Link
+          href={`/connections/${connection.id}/reconnect`}
+          target="_blank"
+          className="font-semibold underline"
+        >
+          Reconnect
+        </Link>
+      </span>
+    </p>
+  );
+}
+
+function accountLabel(c: AppConnection) {
+  return c.label || `${c.appName} (${c.authType === "OAUTH" ? "signed in" : "token"})`;
 }
 
 // What one step did in the selected run: status, timing, error, and the exact
