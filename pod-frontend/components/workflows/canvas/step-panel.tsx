@@ -5,7 +5,7 @@ import Link from "next/link";
 import { AlertTriangle, ChevronRight, Plus, Search, X } from "lucide-react";
 import { cn, formatDuration } from "@/lib/utils";
 import { AppLogo } from "@/components/ui/app-logo";
-import { APP_CATALOG } from "@/lib/mock-catalog";
+import { useCatalog } from "@/lib/catalog-context";
 import { Input } from "@/components/ui/input";
 import { StepStatusBadge } from "@/components/workflows/run-status";
 import { useStepConnection, useStepConnections } from "@/components/workflows/step-connections";
@@ -42,6 +42,7 @@ export function StepPanel({
   const [appPickerOpen, setAppPickerOpen] = useState(!node.data.app);
   const [query, setQuery] = useState("");
   const { connections } = useStepConnections();
+  const catalog = useCatalog();
 
   const isTrigger = node.data.kind === "trigger";
   const kindLabel = isTrigger ? "Trigger event" : "Action event";
@@ -65,8 +66,11 @@ export function StepPanel({
     if (item) onChange?.({ item });
   }
 
-  const filteredApps = APP_CATALOG.filter((app) =>
-    app.name.toLowerCase().includes(query.toLowerCase())
+  // Only apps that have something for this kind of step (e.g. Webhook only triggers).
+  const filteredApps = catalog.apps.filter(
+    (app) =>
+      (isTrigger ? app.triggers.length > 0 : app.actions.length > 0) &&
+      app.name.toLowerCase().includes(query.toLowerCase())
   );
 
   return (
@@ -131,6 +135,21 @@ export function StepPanel({
                       className="pl-9"
                     />
                   </div>
+                  {catalog.error && (
+                    <p className="mb-3 text-sm text-red-400">
+                      {catalog.error}{" "}
+                      <button onClick={catalog.retry} className="font-semibold text-lemon hover:underline">
+                        Retry
+                      </button>
+                    </p>
+                  )}
+                  {catalog.loading && (
+                    <div className="grid grid-cols-2 gap-2">
+                      {[0, 1, 2, 3].map((i) => (
+                        <div key={i} className="h-12 animate-pulse rounded-xl bg-white/5" />
+                      ))}
+                    </div>
+                  )}
                   <div className="grid grid-cols-2 gap-2">
                     {filteredApps.map((app) => (
                       <button
@@ -191,6 +210,9 @@ export function StepPanel({
                     </option>
                   ))}
                 </select>
+              )}
+              {node.data.item?.description && (
+                <p className="mt-2 text-xs text-text-muted">{node.data.item.description}</p>
               )}
             </div>
 
@@ -253,12 +275,14 @@ function AccountSection({
     connectionId
   );
   const [adding, setAdding] = useState(false);
+  const optional = app.connectionOptional;
 
   if (!connector && !(readOnly && connectionId)) return null;
 
   const heading = (
     <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-text-muted">
       {app.name} account
+      {optional && <span className="font-normal normal-case tracking-normal text-text-faint"> (optional)</span>}
     </p>
   );
 
@@ -289,14 +313,15 @@ function AccountSection({
       <div>
         {heading}
         <div className="rounded-xl border border-border-strong bg-surface-sunken px-4 py-3 text-sm font-medium text-text">
-          {chosen ? accountLabel(chosen) : missing ? "Removed since this was saved" : "None chosen"}
+          {chosen ? accountLabel(chosen) : missing ? "Removed since this was saved" : optional ? "No account" : "None chosen"}
         </div>
         {chosen && <AccountWarning connection={chosen} />}
       </div>
     );
   }
 
-  const showForm = adding || connections.length === 0;
+  // Optional accounts don't open the form until asked.
+  const showForm = adding || (connections.length === 0 && !optional);
 
   return (
     <div>
@@ -308,8 +333,8 @@ function AccountSection({
           onChange={(e) => onSelect(e.target.value || null)}
           className="h-11 w-full rounded-lg border border-border-strong bg-surface-sunken px-3.5 text-sm text-text outline-none transition-colors focus:border-lemon"
         >
-          <option value="" disabled>
-            {missing ? "The chosen account was removed; pick another" : "Select an account"}
+          <option value="" disabled={!optional}>
+            {missing ? "The chosen account was removed; pick another" : optional ? "No account" : "Select an account"}
           </option>
           {connections.map((c) => (
             <option key={c.id} value={c.id}>
@@ -327,7 +352,7 @@ function AccountSection({
             <p className="text-sm font-semibold">
               {connections.length === 0 ? `Connect your ${app.name} account` : `Connect another ${app.name} account`}
             </p>
-            {connections.length > 0 && (
+            {(connections.length > 0 || optional) && (
               <button
                 onClick={() => setAdding(false)}
                 className="text-xs font-medium text-text-muted hover:text-text"
@@ -352,7 +377,7 @@ function AccountSection({
           className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-lemon hover:underline"
         >
           <Plus className="size-3.5" />
-          Connect another {app.name} account
+          {connections.length === 0 ? "Add an account" : `Connect another ${app.name} account`}
         </button>
       )}
     </div>

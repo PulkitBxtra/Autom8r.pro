@@ -1,8 +1,20 @@
 import { AppLogo } from "@/components/ui/app-logo";
-import { APP_CATALOG } from "@/lib/mock-catalog";
+
+// Marketing copy for the landing page, not the live catalog (that's GET /apps once signed in).
+const APPS = [
+  { id: "app_gmail", name: "Gmail" },
+  { id: "app_slack", name: "Slack" },
+  { id: "app_sheets", name: "Google Sheets" },
+  { id: "app_github", name: "GitHub" },
+  { id: "app_notion", name: "Notion" },
+  { id: "app_stripe", name: "Stripe" },
+  { id: "app_discord", name: "Discord" },
+  { id: "app_trello", name: "Trello" },
+  { id: "app_http", name: "Any HTTP API" },
+];
 
 export function AppMarquee() {
-  const row = [...APP_CATALOG, ...APP_CATALOG];
+  const row = [...APPS, ...APPS];
 
   return (
     <section id="apps" className="border-t border-border bg-surface py-24">

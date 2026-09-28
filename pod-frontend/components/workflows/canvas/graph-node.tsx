@@ -6,6 +6,7 @@ import { AlertTriangle, MoreVertical, Trash2, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AppLogo } from "@/components/ui/app-logo";
 import type { WorkflowNode } from "@/lib/workflow-graph";
+import type { App } from "@/lib/types";
 import { useCanvasActions } from "./canvas-actions-context";
 import { useStepConnection } from "@/components/workflows/step-connections";
 import { STEP_BORDER, StepStatusBadge, stepDidNotRun, useRunStep } from "@/components/workflows/run-status";
@@ -77,7 +78,7 @@ export function GraphNode({ id, data, selected }: NodeProps<WorkflowNode>) {
           <p className="truncate text-sm font-bold">
             {data.item?.name ?? (isTrigger ? "Choose a trigger" : "Choose an action")}
           </p>
-          {data.app && <AppLine appId={data.app.id} appName={data.app.name} connectionId={data.connectionId} />}
+          {data.app && <AppLine app={data.app} connectionId={data.connectionId} />}
         </div>
       </button>
 
@@ -121,20 +122,12 @@ export function GraphNode({ id, data, selected }: NodeProps<WorkflowNode>) {
 }
 
 // The app, plus which account the step uses, or what's wrong with it.
-function AppLine({
-  appId,
-  appName,
-  connectionId,
-}: {
-  appId: string;
-  appName: string;
-  connectionId: string | null | undefined;
-}) {
-  const { connector, chosen, missing, loading, error } = useStepConnection(appId, connectionId);
+function AppLine({ app, connectionId }: { app: App; connectionId: string | null | undefined }) {
+  const { connector, chosen, missing, loading, error } = useStepConnection(app.id, connectionId);
   let problem: string | null = null;
   if (connector && !loading && !error) {
     if (missing) problem = "Account removed";
-    else if (!connectionId) problem = "Choose an account";
+    else if (!connectionId && !app.connectionOptional) problem = "Choose an account";
     else if (chosen?.status === "NEEDS_REAUTH") problem = "Account needs reconnecting";
   }
 
@@ -148,7 +141,7 @@ function AppLine({
   }
   return (
     <p className="truncate text-xs text-text-muted">
-      {appName}
+      {app.name}
       {chosen?.label && ` · ${chosen.label}`}
     </p>
   );

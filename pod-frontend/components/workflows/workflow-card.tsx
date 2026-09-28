@@ -1,13 +1,15 @@
+"use client";
+
 import Link from "next/link";
 import { ArrowRight, Zap } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { findAppTrigger } from "@/lib/mock-catalog";
+import { useCatalog } from "@/lib/catalog-context";
 import { countActions } from "@/lib/workflow-graph";
 import type { Workflow } from "@/lib/types";
 
 export function WorkflowCard({ workflow }: { workflow: Workflow }) {
-  const trigger = findAppTrigger(workflow.triggerId);
+  const trigger = useCatalog().findTrigger(workflow.triggerId);
   const actionCount = countActions(workflow);
 
   return (

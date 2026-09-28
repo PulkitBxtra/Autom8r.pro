@@ -9,12 +9,13 @@ import { FullPageSpinner } from "@/components/ui/spinner";
 import { WorkflowCard } from "@/components/workflows/workflow-card";
 import { useAuth } from "@/lib/auth-context";
 import { useWorkflows } from "@/hooks/use-workflows";
-import { APP_CATALOG } from "@/lib/mock-catalog";
+import { useCatalog } from "@/lib/catalog-context";
 import { countActions } from "@/lib/workflow-graph";
 
 export default function DashboardPage() {
   const { user } = useAuth();
   const { workflows, loading } = useWorkflows();
+  const catalog = useCatalog();
   const totalActions = workflows.reduce((sum, w) => sum + countActions(w), 0);
 
   return (
@@ -66,7 +67,7 @@ export default function DashboardPage() {
                   <Plug className="size-5" />
                 </div>
                 <div>
-                  <p className="text-2xl font-black">{APP_CATALOG.length}</p>
+                  <p className="text-2xl font-black">{catalog.loading ? "–" : catalog.apps.length}</p>
                   <p className="text-xs text-text-muted">Apps available</p>
                 </div>
               </div>

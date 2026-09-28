@@ -11,6 +11,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { WorkflowCanvas } from "@/components/workflows/canvas/workflow-canvas";
 import { StepPanel } from "@/components/workflows/canvas/step-panel";
 import { StepConnectionsProvider } from "@/components/workflows/step-connections";
+import { useCatalog } from "@/lib/catalog-context";
 import { RunHistory } from "@/components/workflows/run-history";
 import { RunStatusBadge, RunStepsContext } from "@/components/workflows/run-status";
 import { useAuth } from "@/lib/auth-context";
@@ -72,12 +73,15 @@ export default function WorkflowDetailPage({
     runDetail?.graph && runDetail.run.workflowVersionId !== workflow?.currentVersionId
       ? JSON.stringify(runDetail.graph)
       : null;
+  const catalog = useCatalog();
   const graph = useMemo(() => {
-    if (!workflow) return { nodes: [], edges: [] };
+    // Wait for the catalog so steps don't flash their stored fallback names first.
+    if (!workflow || catalog.loading) return { nodes: [], edges: [] };
     return buildGraphFromWorkflow(
-      runGraphJson ? { ...workflow, graph: JSON.parse(runGraphJson) } : workflow
+      runGraphJson ? { ...workflow, graph: JSON.parse(runGraphJson) } : workflow,
+      catalog
     );
-  }, [workflow, runGraphJson]);
+  }, [workflow, runGraphJson, catalog]);
   const [nodes, setNodes, onNodesChange] = useNodesState(graph.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(graph.edges);
 

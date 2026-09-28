@@ -1,19 +1,44 @@
-export type AppAction = {
-  id: string;
-  name: string;
-  type: string;
-  appName: string;
+// The app catalog, from pod-backend's GET /apps (resources/catalog/apps.json there).
+// Trigger/action ids are stable: saved workflow graphs refer to them.
+
+// How a setting is edited and what its value is: text/textarea strings (may hold {{...}}
+// data from earlier steps), number, boolean, select (one of options), keyvalue (object of
+// strings), json (any JSON value).
+export type FieldType = "text" | "textarea" | "number" | "boolean" | "select" | "keyvalue" | "json";
+
+export type CatalogField = {
+  key: string;
+  label: string;
+  type: FieldType;
+  required: boolean;
+  placeholder: string | null;
+  help: string | null;
+  options: { value: string; label: string }[] | null;
+  defaultValue: unknown;
 };
 
 export type AppTrigger = {
   id: string;
   name: string;
-  appName: string;
+  description: string | null;
+  fields: CatalogField[];
+};
+
+export type AppAction = {
+  id: string;
+  name: string;
+  description: string | null;
+  // pod-processor handler that runs it; saved as the step's type.
+  handler: string;
+  fields: CatalogField[];
 };
 
 export type App = {
   id: string;
   name: string;
+  description: string | null;
+  // Steps may run without an account even though the app can be connected (HTTP).
+  connectionOptional: boolean;
   actions: AppAction[];
   triggers: AppTrigger[];
 };

@@ -7,7 +7,7 @@ import type {
   Workflow,
   WorkflowGraph,
 } from "@/lib/types";
-import { findAppAction, findAppTrigger } from "@/lib/mock-catalog";
+import type { Catalog } from "@/lib/catalog";
 
 export type GraphNodeData = {
   kind: "trigger" | "action";
@@ -140,7 +140,8 @@ export function toWorkflowGraph(
           appName: n.data.app!.name,
           itemId: n.data.item!.id,
           name: n.data.item!.name,
-          type: "type" in n.data.item! ? n.data.item.type : null,
+          // Actions run through their catalog handler; triggers have none.
+          type: "handler" in n.data.item! ? n.data.item.handler : null,
           parameters: n.data.parameters ?? {},
           position: { x: n.position.x, y: n.position.y },
           appId: n.data.app!.id,
@@ -158,29 +159,34 @@ export function toWorkflowGraph(
 
 // Catalog lookup with a fallback built from what the graph stored, so a step
 // whose app later disappears from the catalog still renders with its name.
-function resolveNodeItem(node: GraphNode): { app: App; item: AppTrigger | AppAction } {
-  const fallbackApp: App = { id: node.appId ?? node.appName, name: node.appName, actions: [], triggers: [] };
+function resolveNodeItem(node: GraphNode, catalog: Catalog): { app: App; item: AppTrigger | AppAction } {
+  const fallbackApp = unknownApp(node.appId ?? node.appName, node.appName);
+  const name = node.name ?? node.itemId;
 
   if (node.kind === "trigger") {
-    const found = findAppTrigger(node.itemId);
+    const found = catalog.findTrigger(node.itemId);
     return found
       ? { app: found.app, item: found.trigger }
-      : { app: fallbackApp, item: { id: node.itemId, name: node.name ?? node.itemId, appName: node.appName } };
+      : { app: fallbackApp, item: { id: node.itemId, name, description: null, fields: [] } };
   }
 
-  const found = findAppAction(node.itemId);
+  const found = catalog.findAction(node.itemId);
   return found
     ? { app: found.app, item: found.action }
     : {
         app: fallbackApp,
-        item: { id: node.itemId, name: node.name ?? node.itemId, type: node.type ?? "action", appName: node.appName },
+        item: { id: node.itemId, name, description: null, handler: node.type ?? "action", fields: [] },
       };
+}
+
+function unknownApp(id: string, name: string): App {
+  return { id, name, description: null, connectionOptional: false, actions: [], triggers: [] };
 }
 
 // Workflows saved since versioning carry their real graph (branches, joins,
 // layout). Older ones only have the flat legacy action list, which renders as
 // a straight chain.
-export function buildGraphFromWorkflow(workflow: Workflow): {
+export function buildGraphFromWorkflow(workflow: Workflow, catalog: Catalog): {
   nodes: WorkflowNode[];
   edges: WorkflowEdge[];
 } {
@@ -192,7 +198,7 @@ export function buildGraphFromWorkflow(workflow: Workflow): {
         position: n.position ?? { x: 0, y: i * CHILD_Y_SPACING },
         data: {
           kind: n.kind,
-          ...resolveNodeItem(n),
+          ...resolveNodeItem(n, catalog),
           parameters: n.parameters ?? {},
           connectionId: n.connectionId ?? null,
         },
@@ -207,7 +213,7 @@ export function buildGraphFromWorkflow(workflow: Workflow): {
     };
   }
 
-  return buildLegacyGraph(workflow);
+  return buildLegacyGraph(workflow, catalog);
 }
 
 export function countActions(workflow: Workflow) {
@@ -217,21 +223,17 @@ export function countActions(workflow: Workflow) {
   return workflow.actions?.length ?? 0;
 }
 
-function buildLegacyGraph(workflow: Workflow): {
+function buildLegacyGraph(workflow: Workflow, catalog: Catalog): {
   nodes: WorkflowNode[];
   edges: WorkflowEdge[];
 } {
-  const found = findAppTrigger(workflow.triggerId);
-  const triggerApp: App = found?.app ?? {
-    id: "unknown-app",
-    name: "Custom trigger",
-    actions: [],
-    triggers: [],
-  };
+  const found = catalog.findTrigger(workflow.triggerId);
+  const triggerApp: App = found?.app ?? unknownApp("unknown-app", "Custom trigger");
   const triggerItem: AppTrigger = found?.trigger ?? {
     id: workflow.triggerId,
     name: "Custom trigger",
-    appName: triggerApp.name,
+    description: null,
+    fields: [],
   };
 
   const nodes: WorkflowNode[] = [
@@ -251,17 +253,13 @@ function buildLegacyGraph(workflow: Workflow): {
   let previousId = TRIGGER_NODE_ID;
   sortedActions.forEach((action, i) => {
     const nodeId = `action-${action.id}`;
-    const app: App = {
-      id: action.appName,
-      name: action.appName,
-      actions: [],
-      triggers: [],
-    };
+    const app = unknownApp(action.appName, action.appName);
     const item: AppAction = {
       id: action.id,
       name: action.name,
-      type: action.type,
-      appName: action.appName,
+      description: null,
+      handler: action.type,
+      fields: [],
     };
 
     nodes.push({

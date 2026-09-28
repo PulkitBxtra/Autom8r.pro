@@ -1,4 +1,4 @@
-import { Globe } from "lucide-react";
+import { Globe, Webhook } from "lucide-react";
 import {
   siDiscord,
   siGithub,
@@ -52,10 +52,12 @@ export function AppLogo({
       </div>
     );
   }
-  if (appId === "app_http") {
+  // Built-in apps: an icon on a neutral tile.
+  const BuiltIn = appId === "app_http" ? Globe : appId === "app_webhook" ? Webhook : null;
+  if (BuiltIn) {
     return (
       <div className={cn(tile, "bg-white/10 text-text", className)} aria-label={name} role="img">
-        <Globe className="size-[55%]" />
+        <BuiltIn className="size-[55%]" />
       </div>
     );
   }

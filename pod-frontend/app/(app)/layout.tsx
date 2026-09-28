@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { Sidebar } from "@/components/layout/sidebar";
 import { FullPageSpinner } from "@/components/ui/spinner";
+import { CatalogProvider } from "@/lib/catalog-context";
 
 export default function AppShellLayout({
   children,
@@ -27,9 +28,11 @@ export default function AppShellLayout({
   }
 
   return (
-    <div className="flex min-h-screen bg-surface">
-      <Sidebar />
-      <div className="flex min-w-0 flex-1 flex-col">{children}</div>
-    </div>
+    <CatalogProvider>
+      <div className="flex min-h-screen bg-surface">
+        <Sidebar />
+        <div className="flex min-w-0 flex-1 flex-col">{children}</div>
+      </div>
+    </CatalogProvider>
   );
 }
