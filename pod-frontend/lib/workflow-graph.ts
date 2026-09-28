@@ -8,6 +8,7 @@ import type {
   WorkflowGraph,
 } from "@/lib/types";
 import type { Catalog } from "@/lib/catalog";
+import { missingRequired, type DataSource } from "@/lib/step-fields";
 
 export type GraphNodeData = {
   kind: "trigger" | "action";
@@ -32,8 +33,13 @@ export const CHILD_Y_SPACING = 170;
 export const NODE_WIDTH = 256;
 export const PLACEHOLDER_WIDTH = 32;
 
-export function createActionNodeId() {
-  return `action-${crypto.randomUUID()}`;
+// Short, since templates that read a step's output spell out its id ({{steps.<id>.output}}).
+export function createActionNodeId(existing: Iterable<string> = []) {
+  const taken = new Set(existing);
+  for (;;) {
+    const id = `action-${crypto.randomUUID().slice(0, 8)}`;
+    if (!taken.has(id)) return id;
+  }
 }
 
 // Where the "add a step" affordance for a node's next (or next-branch) child
@@ -91,6 +97,38 @@ export function orderSteps(nodes: WorkflowNode[], edges: WorkflowEdge[]) {
   return { trigger, orderedActionNodes };
 }
 
+// What a step can read: the trigger and every step on all paths before it (its ancestors),
+// in step order. Anything else might not have run yet, which pod-backend also rejects on save.
+export function upstreamSources(
+  nodeId: string,
+  nodes: WorkflowNode[],
+  edges: WorkflowEdge[],
+  stepNumbers: Map<string, number>
+): DataSource[] {
+  const parents = new Map<string, string[]>();
+  for (const e of edges) parents.set(e.target, [...(parents.get(e.target) ?? []), e.source]);
+
+  const ancestors = new Set<string>();
+  const queue = [...(parents.get(nodeId) ?? [])];
+  while (queue.length > 0) {
+    const id = queue.shift()!;
+    if (ancestors.has(id)) continue;
+    ancestors.add(id);
+    queue.push(...(parents.get(id) ?? []));
+  }
+
+  return nodes
+    .filter((n) => ancestors.has(n.id) && n.data.item)
+    .sort((a, b) => (stepNumbers.get(a.id) ?? 0) - (stepNumbers.get(b.id) ?? 0))
+    .map((n) => ({
+      nodeId: n.id,
+      label: `${stepNumbers.get(n.id) ?? "?"}. ${n.data.item!.name}`,
+      appId: n.data.app?.id,
+      appName: n.data.app?.name ?? "",
+      path: n.data.kind === "trigger" ? "trigger.body" : `steps.${n.id}.output`,
+    }));
+}
+
 function isConfigured(node: WorkflowNode) {
   return !!node.data.app && !!node.data.item;
 }
@@ -103,7 +141,7 @@ function isConfigured(node: WorkflowNode) {
 export function toWorkflowGraph(
   nodes: WorkflowNode[],
   edges: WorkflowEdge[]
-): { graph: WorkflowGraph } | { error: string; nodeId: string } {
+): { graph: WorkflowGraph } | { error: string; nodeId: string; tab?: "configure" } {
   let keptNodes = [...nodes];
   let keptEdges = [...edges];
 
@@ -129,6 +167,17 @@ export function toWorkflowGraph(
           ? "Choose a trigger before saving"
           : "A step in the middle of this workflow has no app selected",
     };
+  }
+
+  for (const n of keptNodes) {
+    const missing = missingRequired(n.data.item!.fields, n.data.parameters);
+    if (missing.length > 0) {
+      return {
+        nodeId: n.id,
+        tab: "configure",
+        error: `"${n.data.item!.name}" needs ${missing.map((f) => f.label).join(", ")}`,
+      };
+    }
   }
 
   return {

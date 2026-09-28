@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { AppLogo } from "@/components/ui/app-logo";
 import type { WorkflowNode } from "@/lib/workflow-graph";
 import type { App } from "@/lib/types";
+import { missingRequired } from "@/lib/step-fields";
 import { useCanvasActions } from "./canvas-actions-context";
 import { useStepConnection } from "@/components/workflows/step-connections";
 import { STEP_BORDER, StepStatusBadge, stepDidNotRun, useRunStep } from "@/components/workflows/run-status";
@@ -78,7 +79,13 @@ export function GraphNode({ id, data, selected }: NodeProps<WorkflowNode>) {
           <p className="truncate text-sm font-bold">
             {data.item?.name ?? (isTrigger ? "Choose a trigger" : "Choose an action")}
           </p>
-          {data.app && <AppLine app={data.app} connectionId={data.connectionId} />}
+          {data.app && (
+            <AppLine
+              app={data.app}
+              connectionId={data.connectionId}
+              needsSetup={missingRequired(data.item?.fields, data.parameters).length > 0}
+            />
+          )}
         </div>
       </button>
 
@@ -122,7 +129,15 @@ export function GraphNode({ id, data, selected }: NodeProps<WorkflowNode>) {
 }
 
 // The app, plus which account the step uses, or what's wrong with it.
-function AppLine({ app, connectionId }: { app: App; connectionId: string | null | undefined }) {
+function AppLine({
+  app,
+  connectionId,
+  needsSetup,
+}: {
+  app: App;
+  connectionId: string | null | undefined;
+  needsSetup: boolean;
+}) {
   const { connector, chosen, missing, loading, error } = useStepConnection(app.id, connectionId);
   let problem: string | null = null;
   if (connector && !loading && !error) {
@@ -130,6 +145,7 @@ function AppLine({ app, connectionId }: { app: App; connectionId: string | null 
     else if (!connectionId && !app.connectionOptional) problem = "Choose an account";
     else if (chosen?.status === "NEEDS_REAUTH") problem = "Account needs reconnecting";
   }
+  if (!problem && needsSetup) problem = "Finish setting up";
 
   if (problem) {
     return (

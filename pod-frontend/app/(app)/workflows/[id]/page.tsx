@@ -21,6 +21,7 @@ import { useRun, useRuns } from "@/hooks/use-runs";
 import { useNow } from "@/hooks/use-now";
 import {
   buildGraphFromWorkflow,
+  upstreamSources,
   countActions,
   orderSteps,
   TRIGGER_NODE_ID,
@@ -219,6 +220,7 @@ export default function WorkflowDetailPage({
                 key={`${selectedNode.id}:${selectedRunId ?? ""}`}
                 node={selectedNode}
                 stepNumber={stepNumbers.get(selectedNode.id) ?? 1}
+                sources={upstreamSources(selectedNode.id, nodes, edges, stepNumbers)}
                 readOnly
                 onClose={() => setSelectedNodeId(null)}
                 run={{

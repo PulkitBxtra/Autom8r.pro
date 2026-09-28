@@ -91,7 +91,7 @@ export function WorkflowCanvas({
       const sourceNode = nodes.find((n) => n.id === sourceId);
       if (!sourceNode) return;
 
-      const newId = createActionNodeId();
+      const newId = createActionNodeId(nodes.map((n) => n.id));
       const newNode: WorkflowNode = {
         id: newId,
         type: "workflowNode",
@@ -123,7 +123,7 @@ export function WorkflowCanvas({
       const targetNode = nodes.find((n) => n.id === edge.target);
       if (!sourceNode || !targetNode) return;
 
-      const newId = createActionNodeId();
+      const newId = createActionNodeId(nodes.map((n) => n.id));
       const newNode: WorkflowNode = {
         id: newId,
         type: "workflowNode",

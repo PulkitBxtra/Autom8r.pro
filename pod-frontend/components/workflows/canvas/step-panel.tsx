@@ -10,10 +10,13 @@ import { Input } from "@/components/ui/input";
 import { StepStatusBadge } from "@/components/workflows/run-status";
 import { useStepConnection, useStepConnections } from "@/components/workflows/step-connections";
 import { CredentialsForm } from "@/components/connections/connection-form";
+import { StepConfigForm } from "@/components/workflows/canvas/step-config";
+import { defaultParameters, missingRequired, type DataSource } from "@/lib/step-fields";
 import type { App, AppConnection, StepDetail } from "@/lib/types";
 import type { GraphNodeData, WorkflowNode } from "@/lib/workflow-graph";
 
-type Tab = "setup" | "configure" | "test";
+export type StepTab = "setup" | "configure" | "test";
+type Tab = StepTab;
 const TABS: { id: Tab; label: string }[] = [
   { id: "setup", label: "Setup" },
   { id: "configure", label: "Configure" },
@@ -27,10 +30,18 @@ export function StepPanel({
   onClose,
   onChange,
   run,
+  sources = [],
+  initialTab,
+  showMissing = false,
 }: {
   node: WorkflowNode;
   stepNumber: number;
   readOnly?: boolean;
+  // Data this step can use: the trigger and the steps that always run before it.
+  sources?: DataSource[];
+  initialTab?: StepTab;
+  // Mark empty required settings (after a save attempt).
+  showMissing?: boolean;
   onClose: () => void;
   // Applies an edit to this step's data (app, event, connection).
   onChange?: (patch: Partial<GraphNodeData>) => void;
@@ -38,13 +49,14 @@ export function StepPanel({
   run?: { selected: boolean; step: StepDetail | null; now: number };
 }) {
   // Viewing a run means the user wants to see what happened, so open on Test.
-  const [tab, setTab] = useState<Tab>(run?.selected ? "test" : "setup");
+  const [tab, setTab] = useState<Tab>(initialTab ?? (run?.selected ? "test" : "setup"));
   const [appPickerOpen, setAppPickerOpen] = useState(!node.data.app);
   const [query, setQuery] = useState("");
   const { connections } = useStepConnections();
   const catalog = useCatalog();
 
   const isTrigger = node.data.kind === "trigger";
+  const missingCount = missingRequired(node.data.item?.fields, node.data.parameters).length;
   const kindLabel = isTrigger ? "Trigger event" : "Action event";
   const events = node.data.app
     ? isTrigger
@@ -56,14 +68,20 @@ export function StepPanel({
     // Changing the app resets the previously chosen event and account -- they
     // belonged to the other app. With exactly one account for the new app, use it.
     const accounts = connections.filter((c) => c.appId === app.id);
-    onChange?.({ app, item: undefined, connectionId: accounts.length === 1 ? accounts[0].id : null });
+    onChange?.({
+      app,
+      item: undefined,
+      parameters: {},
+      connectionId: accounts.length === 1 ? accounts[0].id : null,
+    });
     setAppPickerOpen(false);
   }
 
   function handlePickEvent(itemId: string) {
     if (!node.data.app) return;
     const item = events.find((e) => e.id === itemId);
-    if (item) onChange?.({ item });
+    // A different event takes different settings: start from its defaults.
+    if (item && item.id !== node.data.item?.id) onChange?.({ item, parameters: defaultParameters(item.fields) });
   }
 
   // Only apps that have something for this kind of step (e.g. Webhook only triggers).
@@ -105,11 +123,17 @@ export function StepPanel({
             <button
               onClick={() => setTab(t.id)}
               className={cn(
-                "rounded-md px-2 py-1 text-sm font-medium transition-colors",
+                "relative rounded-md px-2 py-1 text-sm font-medium transition-colors",
                 tab === t.id ? "text-lemon" : "text-text-muted hover:text-text"
               )}
             >
               {t.label}
+              {t.id === "configure" && !readOnly && missingCount > 0 && (
+                <span
+                  aria-label={`${missingCount} required ${missingCount === 1 ? "setting" : "settings"} missing`}
+                  className="absolute -right-0.5 top-0.5 size-1.5 rounded-full bg-amber-400"
+                />
+              )}
             </button>
           </div>
         ))}
@@ -227,12 +251,23 @@ export function StepPanel({
           </div>
         )}
 
-        {tab === "configure" && (
-          <p className="text-sm text-text-muted">
-            Field mapping isn&apos;t available yet -- this step will run with
-            its event defaults.
-          </p>
-        )}
+        {tab === "configure" &&
+          (node.data.item ? (
+            <StepConfigForm
+              // Remount per event, so inputs that keep their own text start fresh.
+              key={node.data.item.id}
+              fields={node.data.item.fields}
+              values={node.data.parameters ?? {}}
+              sources={sources}
+              readOnly={readOnly}
+              showMissing={showMissing}
+              onChange={(parameters) => onChange?.({ parameters })}
+            />
+          ) : (
+            <p className="text-sm text-text-muted">
+              Choose {isTrigger ? "a trigger" : "an action"} on the Setup tab first.
+            </p>
+          ))}
 
         {tab === "test" &&
           (run?.selected ? (

@@ -6,7 +6,7 @@ import { useNodesState, useEdgesState } from "@xyflow/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { WorkflowCanvas } from "@/components/workflows/canvas/workflow-canvas";
-import { StepPanel } from "@/components/workflows/canvas/step-panel";
+import { StepPanel, type StepTab } from "@/components/workflows/canvas/step-panel";
 import { useAuth } from "@/lib/auth-context";
 import { createWorkflow } from "@/lib/api/workflows";
 import { ApiError } from "@/lib/api/client";
@@ -15,6 +15,7 @@ import {
   orderSteps,
   toWorkflowGraph,
   TRIGGER_NODE_ID,
+  upstreamSources,
   type GraphNodeData,
 } from "@/lib/workflow-graph";
 
@@ -29,6 +30,9 @@ export function WorkflowBuilder() {
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // After a save found missing settings: open that step on Configure and mark what's missing.
+  const [panelTab, setPanelTab] = useState<StepTab | undefined>(undefined);
+  const [showMissing, setShowMissing] = useState(false);
 
   const { trigger, orderedActionNodes } = orderSteps(nodes, edges);
   const canSave = !!trigger?.data.item;
@@ -41,8 +45,19 @@ export function WorkflowBuilder() {
   }, [orderedActionNodes]);
 
   const selectedNode = nodes.find((n) => n.id === selectedNodeId);
+  const sources = useMemo(
+    () => (selectedNodeId ? upstreamSources(selectedNodeId, nodes, edges, stepNumbers) : []),
+    [selectedNodeId, nodes, edges, stepNumbers]
+  );
+
+  function selectNode(id: string | null) {
+    setPanelTab(undefined);
+    setSelectedNodeId(id);
+  }
 
   function handleChangeStep(patch: Partial<GraphNodeData>) {
+    // The last save's complaint may no longer hold; the next save re-checks.
+    setError(null);
     setNodes((nds) =>
       nds.map((n) =>
         n.id === selectedNodeId ? { ...n, data: { ...n.data, ...patch } } : n
@@ -59,6 +74,8 @@ export function WorkflowBuilder() {
       setError(result.error);
       // Open the offending step so the user can fix it straight away.
       setSelectedNodeId(result.nodeId);
+      setPanelTab(result.tab);
+      if (result.tab === "configure") setShowMissing(true);
       return;
     }
 
@@ -109,16 +126,19 @@ export function WorkflowBuilder() {
           setEdges={setEdges}
           interactive
           selectedNodeId={selectedNodeId}
-          onSelectNode={setSelectedNodeId}
+          onSelectNode={selectNode}
         />
       </div>
 
       {selectedNode && (
         <StepPanel
-          key={selectedNode.id}
+          key={`${selectedNode.id}:${panelTab ?? ""}`}
           node={selectedNode}
           stepNumber={stepNumbers.get(selectedNode.id) ?? 1}
-          onClose={() => setSelectedNodeId(null)}
+          sources={sources}
+          initialTab={panelTab}
+          showMissing={showMissing}
+          onClose={() => selectNode(null)}
           onChange={handleChangeStep}
         />
       )}
