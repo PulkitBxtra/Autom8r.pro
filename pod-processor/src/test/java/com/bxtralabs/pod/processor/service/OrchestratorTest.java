@@ -63,11 +63,11 @@ class OrchestratorTest {
     }
 
     private static GraphEdge edge(String from, String to) {
-        return new GraphEdge(from, to, null);
+        return new GraphEdge(from, to, null, null);
     }
 
     private static GraphEdge conditional(String from, String to, String condition) {
-        return new GraphEdge(from, to, condition);
+        return new GraphEdge(from, to, condition, null);
     }
 
     private static WorkflowGraph graph(List<GraphNode> nodes, List<GraphEdge> edges) {
@@ -102,7 +102,7 @@ class OrchestratorTest {
             });
             return saved;
         });
-        when(conditionEvaluator.isTaken(any(), any())).thenReturn(true);
+        when(conditionEvaluator.isTaken(any(), any(), any())).thenReturn(true);
     }
 
     private StepRun store(StepRun s) {
@@ -257,7 +257,7 @@ class OrchestratorTest {
         givenRun(graph(
                 List.of(node("t", "trigger"), node("a", "action"), node("b", "action"), node("c", "action")),
                 List.of(edge("t", "a"), conditional("t", "b", "no"), edge("a", "c"), edge("b", "c"))));
-        when(conditionEvaluator.isTaken(argThat(e -> "no".equals(e.condition())), any())).thenReturn(false);
+        when(conditionEvaluator.isTaken(argThat(e -> "no".equals(e.condition())), any(), any())).thenReturn(false);
 
         orchestrator.onRunStarted("exn_1");
         assertEquals(StepStatus.SKIPPED, status("b"));
@@ -275,7 +275,7 @@ class OrchestratorTest {
         givenRun(graph(
                 List.of(node("t", "trigger"), node("a", "action"), node("x", "action"), node("y", "action")),
                 List.of(conditional("t", "a", "no"), edge("a", "x"), edge("x", "y"))));
-        when(conditionEvaluator.isTaken(argThat(e -> "no".equals(e.condition())), any())).thenReturn(false);
+        when(conditionEvaluator.isTaken(argThat(e -> "no".equals(e.condition())), any(), any())).thenReturn(false);
 
         orchestrator.onRunStarted("exn_1");
 
@@ -291,7 +291,7 @@ class OrchestratorTest {
         givenRun(graph(
                 List.of(node("t", "trigger"), node("a", "action"), node("b", "action"), node("c", "action")),
                 List.of(conditional("t", "a", "no"), conditional("t", "b", "no"), edge("a", "c"), edge("b", "c"))));
-        when(conditionEvaluator.isTaken(argThat(e -> "no".equals(e.condition())), any())).thenReturn(false);
+        when(conditionEvaluator.isTaken(argThat(e -> "no".equals(e.condition())), any(), any())).thenReturn(false);
 
         orchestrator.onRunStarted("exn_1");
 
@@ -304,12 +304,12 @@ class OrchestratorTest {
         givenRun(graph(
                 List.of(node("t", "trigger"), node("a", "action"), node("b", "action")),
                 List.of(conditional("t", "a", "no"), edge("a", "b"))));
-        when(conditionEvaluator.isTaken(argThat(e -> "no".equals(e.condition())), any())).thenReturn(false);
+        when(conditionEvaluator.isTaken(argThat(e -> "no".equals(e.condition())), any(), any())).thenReturn(false);
 
         orchestrator.onRunStarted("exn_1");
 
         // a was skipped, so its edge to b must not be evaluated (it would read a's missing output).
-        verify(conditionEvaluator, never()).isTaken(argThat(e -> "a".equals(e.from())), any());
+        verify(conditionEvaluator, never()).isTaken(argThat(e -> "a".equals(e.from())), any(), any());
         assertEquals(StepStatus.SKIPPED, status("b"));
     }
 

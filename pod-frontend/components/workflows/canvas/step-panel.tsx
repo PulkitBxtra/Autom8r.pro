@@ -12,6 +12,7 @@ import { useStepConnection, useStepConnections } from "@/components/workflows/st
 import { CredentialsForm } from "@/components/connections/connection-form";
 import { StepConfigForm } from "@/components/workflows/canvas/step-config";
 import { defaultParameters, missingRequired, type DataSource } from "@/lib/step-fields";
+import { operatorLabel } from "@/lib/logic";
 import type { App, AppConnection, StepDetail } from "@/lib/types";
 import type { GraphNodeData, WorkflowNode } from "@/lib/workflow-graph";
 
@@ -484,6 +485,7 @@ function StepRunDetails({ step, now }: { step: StepDetail; now: number }) {
           {step.error}
         </JsonSection>
       )}
+      {Array.isArray(step.output?.explain) && <Decision output={step.output!} />}
       {step.input != null && <JsonSection label="Input">{json(step.input)}</JsonSection>}
       {step.output != null && <JsonSection label="Output">{json(step.output)}</JsonSection>}
     </div>
@@ -518,4 +520,67 @@ function JsonSection({
 
 function json(value: unknown) {
   return JSON.stringify(value, null, 2);
+}
+
+type Explained = {
+  output: string;
+  name: string;
+  checked: boolean;
+  matched?: boolean;
+  match?: "all" | "any";
+  conditions?: { left: unknown; op: string; right: unknown; result: boolean }[];
+};
+
+// A Logic step's decision in words: which paths matched, and each condition with the values
+// it compared in this run.
+function Decision({ output }: { output: Record<string, unknown> }) {
+  const explain = output.explain as Explained[];
+  const matched = (output.matched as string[] | undefined) ?? [];
+  return (
+    <div>
+      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-text-muted">Decision</p>
+      <p className="mb-3 text-sm">
+        {matched.length > 0 ? (
+          <>
+            Followed <span className="font-semibold text-lemon">{matched.join(", ")}</span>
+          </>
+        ) : (
+          <span className="text-text-muted">Nothing matched, so the steps after it were skipped.</span>
+        )}
+      </p>
+      <div className="space-y-2">
+        {explain.map((e) => (
+          <div key={e.output} className="rounded-xl border border-border-strong bg-surface-sunken px-3 py-2.5 text-xs">
+            <p className="flex items-center justify-between gap-2 font-semibold">
+              <span className="truncate">{e.name}</span>
+              <span className={!e.checked ? "text-text-faint" : e.matched ? "text-emerald-400" : "text-text-muted"}>
+                {!e.checked ? "Not checked" : e.matched ? "Matched" : "Didn't match"}
+              </span>
+            </p>
+            {e.checked && e.conditions && (
+              <ul className="mt-1.5 space-y-1">
+                {e.conditions.map((c, i) => (
+                  <li key={i} className="flex items-start gap-1.5">
+                    <span className={c.result ? "text-emerald-400" : "text-red-400"}>{c.result ? "✓" : "✗"}</span>
+                    <span className="min-w-0 break-words font-mono">
+                      {show(c.left)} <span className="font-sans text-text-muted">{operatorLabel(c.op)}</span>
+                      {c.right != null && <> {show(c.right)}</>}
+                    </span>
+                  </li>
+                ))}
+                {e.conditions.length > 1 && (
+                  <li className="text-text-faint">{e.match === "any" ? "Any condition could match" : "All conditions had to match"}</li>
+                )}
+              </ul>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function show(v: unknown) {
+  if (v === null || v === undefined || v === "") return "(empty)";
+  return typeof v === "string" ? `"${v}"` : JSON.stringify(v);
 }

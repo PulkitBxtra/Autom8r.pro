@@ -8,6 +8,7 @@ import { AppLogo } from "@/components/ui/app-logo";
 import type { WorkflowNode } from "@/lib/workflow-graph";
 import type { App } from "@/lib/types";
 import { missingRequired } from "@/lib/step-fields";
+import { logicOutputs } from "@/lib/logic";
 import { useCanvasActions } from "./canvas-actions-context";
 import { useStepConnection } from "@/components/workflows/step-connections";
 import { STEP_BORDER, StepStatusBadge, stepDidNotRun, useRunStep } from "@/components/workflows/run-status";
@@ -20,6 +21,7 @@ export function GraphNode({ id, data, selected }: NodeProps<WorkflowNode>) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const empty = !data.item;
+  const outputs = logicOutputs(data.item, data.parameters);
   const isTrigger = data.kind === "trigger";
 
   useEffect(() => {
@@ -119,11 +121,35 @@ export function GraphNode({ id, data, selected }: NodeProps<WorkflowNode>) {
         </div>
       )}
 
-      <Handle
-        type="source"
-        position={Position.Bottom}
-        className="!size-2.5 !border-2 !border-surface !bg-border-strong"
-      />
+      {outputs ? (
+        // One output per path, spread along the bottom edge, each labelled.
+        outputs.map((out, i) => {
+          const left = `${((i + 1) / (outputs.length + 1)) * 100}%`;
+          return (
+            <div key={out.id}>
+              <Handle
+                type="source"
+                id={out.id}
+                position={Position.Bottom}
+                style={{ left }}
+                className="!size-2.5 !border-2 !border-surface !bg-lemon"
+              />
+              <span
+                style={{ left }}
+                className="pointer-events-none absolute top-full mt-2 max-w-24 -translate-x-1/2 truncate rounded-full border border-border-strong bg-surface px-2 py-0.5 text-[10px] font-semibold text-text-muted"
+              >
+                {out.label}
+              </span>
+            </div>
+          );
+        })
+      ) : (
+        <Handle
+          type="source"
+          position={Position.Bottom}
+          className="!size-2.5 !border-2 !border-surface !bg-border-strong"
+        />
+      )}
     </div>
   );
 }

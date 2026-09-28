@@ -1,4 +1,5 @@
 import type { CatalogField } from "@/lib/types";
+import { groupIncomplete, pathsIncomplete } from "@/lib/logic";
 
 // Where a step can read data from: the trigger or a step that always runs before it. `path` is
 // the template prefix the engine resolves ({{trigger.body...}}, {{steps.<id>.output...}}).
@@ -34,9 +35,14 @@ export function isEmptyValue(value: unknown) {
   return false;
 }
 
-// Required fields that have no value yet.
+// Required fields that have no value yet (for Logic fields: a condition still half filled in).
 export function missingRequired(fields: CatalogField[] | undefined, params: Record<string, unknown> | undefined) {
-  return (fields ?? []).filter((f) => f.required && f.type !== "boolean" && isEmptyValue(params?.[f.key]));
+  return (fields ?? []).filter((f) => {
+    const v = params?.[f.key];
+    if (f.type === "conditions") return f.required && groupIncomplete(v);
+    if (f.type === "paths") return f.required && pathsIncomplete(v);
+    return f.required && f.type !== "boolean" && isEmptyValue(v);
+  });
 }
 
 const TEMPLATE = /\{\{\s*([^{}]+?)\s*\}\}/g;

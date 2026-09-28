@@ -1,18 +1,30 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Braces, ChevronLeft, Eye, EyeOff, Plus, X } from "lucide-react";
+import { Braces, ChevronLeft, Eye, EyeOff, Plus, Trash2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AppLogo } from "@/components/ui/app-logo";
 import {
   describePath,
   isEmptyValue,
   isSensitiveKey,
+  missingRequired,
   SECRET_MASK,
   templatePaths,
   type DataSource,
 } from "@/lib/step-fields";
 import type { CatalogField } from "@/lib/types";
+import {
+  conditionIncomplete,
+  emptyCondition,
+  isUnary,
+  newPathId,
+  operatorLabel,
+  OPERATORS,
+  type Condition,
+  type ConditionGroup,
+  type LogicPath,
+} from "@/lib/logic";
 
 // The Configure tab: one input per catalog field, saved into the step's parameters by key.
 // Text-like inputs can insert data from the trigger or earlier steps as {{...}} templates.
@@ -57,7 +69,8 @@ export function StepConfigForm({
     <div className="space-y-5">
       {fields.map((field) => {
         const value = values[field.key];
-        const missing = showMissing && field.required && field.type !== "boolean" && isEmptyValue(value);
+        const missing = showMissing && missingRequired([field], values).length > 0;
+        const logic = field.type === "conditions" || field.type === "paths";
         return (
           <div key={field.key} data-field={field.key}>
             <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-text-muted">
@@ -69,7 +82,11 @@ export function StepConfigForm({
             ) : (
               <FieldInput field={field} value={value} sources={sources} invalid={missing} onChange={(v) => set(field.key, v)} />
             )}
-            {missing && <p className="mt-1.5 text-xs text-red-400">Required</p>}
+            {missing && (
+              <p className="mt-1.5 text-xs text-red-400">
+                {logic ? "Fill in every condition" : "Required"}
+              </p>
+            )}
             {field.help && <p className="mt-1.5 text-xs text-text-faint">{field.help}</p>}
             <UsedData value={value} sources={sources} />
           </div>
@@ -136,6 +153,17 @@ function FieldInput({
           ))}
         </select>
       );
+    case "conditions":
+      return (
+        <ConditionsInput
+          group={asGroup(value)}
+          sources={sources}
+          showMissing={invalid}
+          onChange={onChange}
+        />
+      );
+    case "paths":
+      return <PathsInput paths={asPaths(value)} sources={sources} showMissing={invalid} onChange={onChange} />;
     case "keyvalue":
       return <KeyValueInput value={value} sources={sources} invalid={invalid} secret={field.secret} onChange={onChange} />;
     case "json":
@@ -541,6 +569,29 @@ function parseJson(text: string): { ok: true; value: unknown } | { ok: false } {
 }
 
 function ReadOnlyValue({ field, value }: { field: CatalogField; value: unknown }) {
+  if (field.type === "conditions" || field.type === "paths") {
+    const groups = field.type === "paths" ? asPaths(value) : [{ ...asGroup(value), id: "", name: "" }];
+    return (
+      <div className="space-y-2">
+        {groups.map((g, i) => (
+          <div key={g.id || i} className="rounded-xl border border-border-strong bg-surface-sunken px-4 py-3 text-sm">
+            {g.name && <p className="mb-1.5 font-semibold">{g.name}</p>}
+            <p className="text-xs text-text-muted">
+              {g.match === "any" ? "Any of these:" : "All of these:"}
+            </p>
+            <ul className="mt-1 space-y-0.5 font-mono text-xs">
+              {g.conditions.map((c, j) => (
+                <li key={j}>
+                  {c.left} <span className="font-sans text-text-muted">{operatorLabel(c.op)}</span>
+                  {!isUnary(c.op) && <> {c.right}</>}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
+    );
+  }
   let shown: string;
   if (isEmptyValue(value)) shown = "Not set";
   else if (field.type === "boolean") shown = value === true ? "Yes" : "No";
@@ -577,5 +628,196 @@ function UsedData({ value, sources }: { value: unknown; sources: DataSource[] })
         );
       })}
     </ul>
+  );
+}
+
+function asGroup(value: unknown): ConditionGroup {
+  const g = (value ?? {}) as Partial<ConditionGroup>;
+  return {
+    match: g.match === "any" ? "any" : "all",
+    conditions: Array.isArray(g.conditions) && g.conditions.length > 0 ? g.conditions : [emptyCondition()],
+  };
+}
+
+function asPaths(value: unknown): LogicPath[] {
+  return Array.isArray(value) ? (value as LogicPath[]) : [];
+}
+
+// Rows of [data] [comparison] [value], joined by AND or OR.
+function ConditionsInput({
+  group,
+  sources,
+  showMissing,
+  onChange,
+}: {
+  group: ConditionGroup;
+  sources: DataSource[];
+  showMissing: boolean;
+  onChange: (value: ConditionGroup) => void;
+}) {
+  const set = (conditions: Condition[]) => onChange({ ...group, conditions });
+  const update = (i: number, patch: Partial<Condition>) =>
+    set(group.conditions.map((c, j) => (j === i ? { ...c, ...patch } : c)));
+
+  return (
+    <div className="space-y-2">
+      {group.conditions.length > 1 && (
+        <div role="radiogroup" aria-label="How conditions combine" className="inline-flex rounded-lg border border-border-strong bg-surface-sunken p-0.5">
+          {(["all", "any"] as const).map((m) => (
+            <button
+              key={m}
+              type="button"
+              role="radio"
+              aria-checked={group.match === m}
+              onClick={() => onChange({ ...group, match: m })}
+              className={cn(
+                "rounded-md px-2.5 py-1 text-xs font-semibold transition-colors",
+                group.match === m ? "bg-white/10 text-text" : "text-text-muted hover:text-text"
+              )}
+            >
+              {m === "all" ? "All must match (AND)" : "Any can match (OR)"}
+            </button>
+          ))}
+        </div>
+      )}
+      {group.conditions.map((c, i) => {
+        const incomplete = showMissing && conditionIncomplete(c);
+        return (
+          <div key={i}>
+            {i > 0 && (
+              <p className="py-1 text-center text-[10px] font-bold uppercase tracking-wide text-text-faint">
+                {group.match === "any" ? "or" : "and"}
+              </p>
+            )}
+            <div className="space-y-2 rounded-xl border border-border bg-surface-sunken/50 p-3" data-condition={i}>
+              <div className="flex items-start gap-2">
+                <div className="min-w-0 flex-1">
+                  <TemplateInput
+                    ariaLabel={`Condition ${i + 1} data`}
+                    value={c.left ?? ""}
+                    placeholder="Data to check"
+                    sources={sources}
+                    invalid={incomplete && !String(c.left ?? "").trim()}
+                    onChange={(left) => update(i, { left })}
+                  />
+                </div>
+                {group.conditions.length > 1 && (
+                  <button
+                    type="button"
+                    aria-label={`Remove condition ${i + 1}`}
+                    onClick={() => set(group.conditions.filter((_, j) => j !== i))}
+                    className="flex size-11 shrink-0 items-center justify-center rounded-lg text-text-faint transition-colors hover:bg-white/5 hover:text-text"
+                  >
+                    <X className="size-4" />
+                  </button>
+                )}
+              </div>
+              <select
+                aria-label={`Condition ${i + 1} comparison`}
+                value={c.op}
+                onChange={(e) => update(i, { op: e.target.value, ...(isUnary(e.target.value) ? { right: "" } : {}) })}
+                className="h-10 w-full rounded-lg border border-border-strong bg-surface-sunken px-3 text-sm text-text outline-none focus:border-lemon"
+              >
+                {OPERATORS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+              {!isUnary(c.op) && (
+                <TemplateInput
+                  ariaLabel={`Condition ${i + 1} value`}
+                  value={c.right ?? ""}
+                  placeholder={c.op === "in_list" ? "DE, FR, IT" : "Value"}
+                  sources={sources}
+                  invalid={incomplete && !String(c.right ?? "").trim()}
+                  onChange={(right) => update(i, { right })}
+                />
+              )}
+            </div>
+          </div>
+        );
+      })}
+      <button
+        type="button"
+        onClick={() => set([...group.conditions, emptyCondition()])}
+        className="inline-flex items-center gap-1.5 text-xs font-semibold text-lemon hover:underline"
+      >
+        <Plus className="size-3.5" />
+        Add condition
+      </button>
+    </div>
+  );
+}
+
+// Named paths, each with its own conditions. Each path is an output on the canvas.
+function PathsInput({
+  paths,
+  sources,
+  showMissing,
+  onChange,
+}: {
+  paths: LogicPath[];
+  sources: DataSource[];
+  showMissing: boolean;
+  onChange: (value: LogicPath[]) => void;
+}) {
+  const update = (i: number, next: LogicPath) => onChange(paths.map((p, j) => (j === i ? next : p)));
+
+  return (
+    <div className="space-y-4">
+      {paths.map((p, i) => (
+        <div key={p.id} data-path={p.id} className="rounded-xl border border-border-strong p-3">
+          <div className="mb-3 flex items-center gap-2">
+            <input
+              aria-label={`Path ${i + 1} name`}
+              value={p.name}
+              maxLength={60}
+              placeholder="Path name"
+              onChange={(e) => update(i, { ...p, name: e.target.value })}
+              className={cn(
+                "h-9 min-w-0 flex-1 rounded-lg border bg-surface-sunken px-3 text-sm font-semibold text-text outline-none focus:border-lemon",
+                showMissing && !p.name.trim() ? "border-red-500/60" : "border-border-strong"
+              )}
+            />
+            {paths.length > 1 && (
+              <button
+                type="button"
+                aria-label={`Delete path ${p.name || i + 1}`}
+                title="Delete path (steps under it are disconnected)"
+                onClick={() => onChange(paths.filter((_, j) => j !== i))}
+                className="flex size-9 shrink-0 items-center justify-center rounded-lg text-text-faint transition-colors hover:bg-red-500/10 hover:text-red-400"
+              >
+                <Trash2 className="size-4" />
+              </button>
+            )}
+          </div>
+          <ConditionsInput
+            group={asGroup(p)}
+            sources={sources}
+            showMissing={showMissing}
+            onChange={(g) => update(i, { ...p, ...g })}
+          />
+        </div>
+      ))}
+      <button
+        type="button"
+        onClick={() =>
+          onChange([
+            ...paths,
+            {
+              id: newPathId(paths.map((p) => p.id)),
+              name: `Path ${String.fromCharCode(65 + (paths.length % 26))}`,
+              match: "all",
+              conditions: [emptyCondition()],
+            },
+          ])
+        }
+        className="inline-flex items-center gap-1.5 text-xs font-semibold text-lemon hover:underline"
+      >
+        <Plus className="size-3.5" />
+        Add path
+      </button>
+    </div>
   );
 }

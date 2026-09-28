@@ -22,11 +22,13 @@ import { PlaceholderEdge } from "./placeholder-edge";
 import { CanvasActionsContext } from "./canvas-actions-context";
 import {
   createActionNodeId,
+  edgeId,
   nextChildSlot,
   NODE_WIDTH,
   PLACEHOLDER_WIDTH,
   TRIGGER_NODE_ID,
 } from "@/lib/workflow-graph";
+import { logicOutputs } from "@/lib/logic";
 import type {
   CanvasNode,
   PlaceholderNode,
@@ -86,7 +88,7 @@ export function WorkflowCanvas({
   );
 
   const onQuickAdd = useCallback(
-    (sourceId: string) => {
+    (sourceId: string, handle?: string) => {
       if (!interactive) return;
       const sourceNode = nodes.find((n) => n.id === sourceId);
       if (!sourceNode) return;
@@ -95,12 +97,13 @@ export function WorkflowCanvas({
       const newNode: WorkflowNode = {
         id: newId,
         type: "workflowNode",
-        position: nextChildSlot(sourceNode, edges),
+        position: nextChildSlot(sourceNode, edges, handle),
         data: { kind: "action" },
       };
       const newEdge: WorkflowEdge = {
-        id: `edge-${sourceId}-${newId}`,
+        id: edgeId(sourceId, newId, handle),
         source: sourceId,
+        sourceHandle: handle ?? null,
         target: newId,
         type: "workflowEdge",
       };
@@ -115,9 +118,9 @@ export function WorkflowCanvas({
   // Splits an existing connection in two around a freshly created node,
   // so a branch can grow a step in the middle without deleting/redrawing.
   const onInsertNode = useCallback(
-    (edgeId: string) => {
+    (id: string) => {
       if (!interactive) return;
-      const edge = edges.find((e) => e.id === edgeId);
+      const edge = edges.find((e) => e.id === id);
       if (!edge) return;
       const sourceNode = nodes.find((n) => n.id === edge.source);
       const targetNode = nodes.find((n) => n.id === edge.target);
@@ -136,9 +139,16 @@ export function WorkflowCanvas({
 
       setNodes((nds) => [...nds, newNode]);
       setEdges((eds) => [
-        ...eds.filter((e) => e.id !== edgeId),
-        { id: `edge-${edge.source}-${newId}`, source: edge.source, target: newId, type: "workflowEdge" },
-        { id: `edge-${newId}-${edge.target}`, source: newId, target: edge.target, type: "workflowEdge" },
+        ...eds.filter((e) => e.id !== id),
+        // The new step takes the old edge's place under a Logic step's output.
+        {
+          id: edgeId(edge.source, newId, edge.sourceHandle),
+          source: edge.source,
+          sourceHandle: edge.sourceHandle ?? null,
+          target: newId,
+          type: "workflowEdge",
+        },
+        { id: edgeId(newId, edge.target), source: newId, target: edge.target, type: "workflowEdge" },
       ]);
       onSelectNode(newId);
     },
@@ -155,6 +165,32 @@ export function WorkflowCanvas({
     const phNodes: PlaceholderNode[] = [];
     const phEdges: WorkflowEdge[] = [];
     for (const node of nodes) {
+      // A Logic step invites a step under each of its outputs that has nothing yet.
+      const outputs = logicOutputs(node.data.item, node.data.parameters);
+      if (outputs) {
+        for (const out of outputs) {
+          if (edges.some((e) => e.source === node.id && e.sourceHandle === out.id)) continue;
+          const slot = nextChildSlot(node, edges, out.id);
+          const phId = `placeholder-${node.id}-${out.id}`;
+          phNodes.push({
+            id: phId,
+            type: "placeholderNode",
+            position: { x: slot.x + (NODE_WIDTH - PLACEHOLDER_WIDTH) / 2, y: slot.y },
+            data: { parentId: node.id, handle: out.id },
+            draggable: false,
+            selectable: false,
+            style: { pointerEvents: "all" },
+          });
+          phEdges.push({
+            id: `placeholder-edge-${node.id}-${out.id}`,
+            source: node.id,
+            sourceHandle: out.id,
+            target: phId,
+            type: "placeholderEdge",
+          });
+        }
+        continue;
+      }
       if (sourceIds.has(node.id)) continue;
       const slot = nextChildSlot(node, edges);
       const phId = `placeholder-${node.id}`;

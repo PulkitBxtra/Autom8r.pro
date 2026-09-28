@@ -12,7 +12,7 @@ export function PlaceholderNode({ data }: NodeProps<PlaceholderNodeType>) {
     <div className="relative flex size-8 items-center justify-center">
       <Handle type="target" position={Position.Top} className="!opacity-0" />
       <button
-        onClick={() => onQuickAdd(data.parentId)}
+        onClick={() => onQuickAdd(data.parentId, data.handle)}
         aria-label="Add step"
         className="flex size-8 items-center justify-center rounded-full border border-border-strong bg-surface-sunken text-text-muted transition-colors hover:border-lemon hover:text-lemon"
       >

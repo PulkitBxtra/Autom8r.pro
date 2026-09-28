@@ -195,6 +195,8 @@ public class Orchestrator {
         for (GraphEdge edge : edgesOf(graph)) {
             outgoing.computeIfAbsent(edge.from(), k -> new ArrayList<>()).add(edge);
         }
+        Map<String, GraphNode> nodes = new HashMap<>();
+        graph.nodes().forEach(n -> nodes.put(n.id(), n));
 
         long now = System.currentTimeMillis();
         List<StepRun> ready = new ArrayList<>();
@@ -212,7 +214,7 @@ public class Orchestrator {
                     continue;
                 }
                 child.setPendingDeps(child.getPendingDeps() - 1);
-                if (doneRan && conditionEvaluator.isTaken(edge, context)) {
+                if (doneRan && conditionEvaluator.isTaken(edge, nodes.get(done.getNodeId()), context)) {
                     child.setActiveParents(child.getActiveParents() + 1);
                 }
                 if (child.getPendingDeps() == 0) {

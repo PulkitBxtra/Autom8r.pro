@@ -45,6 +45,50 @@
       ]
     },
     {
+      "id": "app_logic",
+      "name": "Logic",
+      "description": "Branch, route and filter",
+      "triggers": [],
+      "actions": [
+        {
+          "id": "act_logic_switch",
+          "name": "Switch",
+          "description": "Checks paths in order and follows the first that matches; if none does, follows Otherwise.",
+          "handler": "logic.switch",
+          "fields": [
+            { "key": "paths", "label": "Paths", "type": "paths", "required": true, "defaultValue": [ { "id": "p_a", "name": "Path A", "match": "all", "conditions": [ { "left": "", "op": "equals", "right": "" } ] } ] }
+          ]
+        },
+        {
+          "id": "act_logic_paths",
+          "name": "Paths",
+          "description": "Follows every path whose conditions match. If none match, nothing after it runs.",
+          "handler": "logic.paths",
+          "fields": [
+            { "key": "paths", "label": "Paths", "type": "paths", "required": true, "defaultValue": [ { "id": "p_a", "name": "Path A", "match": "all", "conditions": [ { "left": "", "op": "equals", "right": "" } ] } ] }
+          ]
+        },
+        {
+          "id": "act_logic_if_else",
+          "name": "If / Else",
+          "description": "Follows If when the conditions match, otherwise Else.",
+          "handler": "logic.if_else",
+          "fields": [
+            { "key": "conditions", "label": "If", "type": "conditions", "required": true, "defaultValue": { "match": "all", "conditions": [ { "left": "", "op": "equals", "right": "" } ] } }
+          ]
+        },
+        {
+          "id": "act_logic_filter",
+          "name": "Filter",
+          "description": "Continues only when the conditions match; otherwise the steps after it are skipped and the run still succeeds.",
+          "handler": "logic.filter",
+          "fields": [
+            { "key": "conditions", "label": "Continue only if", "type": "conditions", "required": true, "defaultValue": { "match": "all", "conditions": [ { "left": "", "op": "equals", "right": "" } ] } }
+          ]
+        }
+      ]
+    },
+    {
       "id": "app_gmail",
       "name": "Gmail",
       "description": "Send and receive email",

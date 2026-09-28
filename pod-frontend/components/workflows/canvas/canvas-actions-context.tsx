@@ -7,7 +7,8 @@ type CanvasActions = {
   selectedNodeId: string | null;
   onConfigure: (nodeId: string) => void;
   onDelete: (nodeId: string) => void;
-  onQuickAdd: (parentId: string) => void;
+  // handle: the Logic step output to add the step under.
+  onQuickAdd: (parentId: string, handle?: string) => void;
   onInsertNode: (edgeId: string) => void;
 };
 

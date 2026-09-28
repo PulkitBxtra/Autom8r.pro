@@ -4,7 +4,17 @@
 // How a setting is edited and what its value is: text/textarea strings (may hold {{...}}
 // data from earlier steps), number, boolean, select (one of options), keyvalue (object of
 // strings), json (any JSON value).
-export type FieldType = "text" | "textarea" | "number" | "boolean" | "select" | "keyvalue" | "json";
+export type FieldType =
+  | "text"
+  | "textarea"
+  | "number"
+  | "boolean"
+  | "select"
+  | "keyvalue"
+  | "json"
+  // Logic steps: a set of conditions, or named paths each with its conditions (lib/logic.ts).
+  | "conditions"
+  | "paths";
 
 export type CatalogField = {
   key: string;
@@ -75,8 +85,10 @@ export type GraphNode = {
 export type GraphEdge = {
   from: string;
   to: string;
-  // Not evaluated by the engine yet; null means always taken.
+  // Older-style edge condition (still evaluated by the engine; the editor no longer sets it).
   condition?: string | null;
+  // Which output of a Logic step the edge leaves from (a path id, "otherwise", "if"/"else").
+  sourceHandle?: string | null;
 };
 
 export type WorkflowGraph = {

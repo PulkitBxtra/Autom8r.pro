@@ -9,6 +9,7 @@ import type {
 } from "@/lib/types";
 import type { Catalog } from "@/lib/catalog";
 import { missingRequired, type DataSource } from "@/lib/step-fields";
+import { logicOutputs } from "@/lib/logic";
 
 export type GraphNodeData = {
   kind: "trigger" | "action";
@@ -21,7 +22,8 @@ export type GraphNodeData = {
 };
 
 export type WorkflowNode = Node<GraphNodeData, "workflowNode">;
-export type PlaceholderNodeData = { parentId: string };
+// handle: which output of a Logic step the new step would hang off (undefined for ordinary steps).
+export type PlaceholderNodeData = { parentId: string; handle?: string };
 export type PlaceholderNode = Node<PlaceholderNodeData, "placeholderNode">;
 export type CanvasNode = WorkflowNode | PlaceholderNode;
 export type WorkflowEdge = Edge;
@@ -45,12 +47,47 @@ export function createActionNodeId(existing: Iterable<string> = []) {
 // Where the "add a step" affordance for a node's next (or next-branch) child
 // belongs -- reused by the quick-add flow and by the placeholder node/edge
 // pair so a placeholder always sits exactly where the real node will land.
-export function nextChildSlot(node: WorkflowNode, edges: WorkflowEdge[]) {
+export function nextChildSlot(node: WorkflowNode, edges: WorkflowEdge[], handle?: string) {
+  // A Logic step's outputs fan out side by side, centred under it, one column per output.
+  const outputs = logicOutputs(node.data.item, node.data.parameters);
+  if (outputs && handle) {
+    const index = Math.max(0, outputs.findIndex((o) => o.id === handle));
+    const taken = edges.filter((e) => e.source === node.id && e.sourceHandle === handle).length;
+    return {
+      x: node.position.x + (index - (outputs.length - 1) / 2) * CHILD_X_SPACING + taken * 40,
+      y: node.position.y + CHILD_Y_SPACING,
+    };
+  }
   const siblingCount = edges.filter((e) => e.source === node.id).length;
   return {
     x: node.position.x + siblingCount * CHILD_X_SPACING,
     y: node.position.y + CHILD_Y_SPACING,
   };
+}
+
+// Keeps a step's outgoing edges on outputs it still has, after its settings changed: edges of a
+// deleted path go (whatever hung off them is left unconnected, which saving then points out);
+// an edge with no output name moves onto the first output when the step becomes a Switch,
+// Paths or If/Else, and loses its name when the step stops being one.
+export function reconcileOutputs(
+  edges: WorkflowEdge[],
+  nodeId: string,
+  outputs: { id: string }[] | null
+): WorkflowEdge[] {
+  return edges.flatMap((e) => {
+    if (e.source !== nodeId) return [e];
+    const handle = e.sourceHandle ?? null;
+    if (!outputs) {
+      return handle ? [{ ...e, sourceHandle: null, id: edgeId(e.source, e.target) }] : [e];
+    }
+    if (handle && outputs.some((o) => o.id === handle)) return [e];
+    if (handle || outputs.length === 0) return [];
+    return [{ ...e, sourceHandle: outputs[0].id, id: edgeId(e.source, e.target, outputs[0].id) }];
+  });
+}
+
+export function edgeId(source: string, target: string, handle?: string | null) {
+  return handle ? `edge-${source}-${handle}-${target}` : `edge-${source}-${target}`;
 }
 
 export function buildInitialGraph(): { nodes: WorkflowNode[]; edges: WorkflowEdge[] } {
@@ -135,7 +172,7 @@ export function graphSnapshot(nodes: WorkflowNode[], edges: WorkflowEdge[]) {
     nodes: nodes
       .map((n) => [n.id, n.data.app?.id, n.data.item?.id, n.data.parameters ?? {}, n.data.connectionId ?? null, n.position.x, n.position.y])
       .sort(),
-    edges: edges.map((e) => `${e.source}>${e.target}`).sort(),
+    edges: edges.map((e) => `${e.source}:${e.sourceHandle ?? ""}>${e.target}`).sort(),
   });
 }
 
@@ -211,6 +248,7 @@ export function toWorkflowGraph(
         from: e.source,
         to: e.target,
         condition: (e.data?.condition as string | undefined) ?? null,
+        sourceHandle: e.sourceHandle ?? null,
       })),
     },
   };
@@ -262,13 +300,18 @@ export function buildGraphFromWorkflow(workflow: Workflow, catalog: Catalog): {
           connectionId: n.connectionId ?? null,
         },
       })),
-      edges: workflow.graph.edges.map((e) => ({
-        id: `edge-${e.from}-${e.to}`,
-        source: e.from,
-        target: e.to,
-        type: "workflowEdge",
-        ...(e.condition ? { data: { condition: e.condition } } : {}),
-      })),
+      edges: workflow.graph.edges.map((e) => {
+        // A Filter's single output is stored as "pass" but drawn as the step's plain output.
+        const handle = e.sourceHandle && e.sourceHandle !== "pass" ? e.sourceHandle : null;
+        return {
+          id: edgeId(e.from, e.to, handle),
+          source: e.from,
+          target: e.to,
+          sourceHandle: handle,
+          type: "workflowEdge",
+          ...(e.condition ? { data: { condition: e.condition } } : {}),
+        };
+      }),
     };
   }
 

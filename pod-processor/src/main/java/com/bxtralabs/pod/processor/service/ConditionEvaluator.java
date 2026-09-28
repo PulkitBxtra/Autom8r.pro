@@ -1,6 +1,8 @@
 package com.bxtralabs.pod.processor.service;
 
 import com.bxtralabs.pod.processor.model.graph.GraphEdge;
+import com.bxtralabs.pod.processor.model.graph.GraphNode;
+import com.bxtralabs.pod.processor.service.handlers.LogicHandler;
 import com.bxtralabs.pod.processor.service.template.TemplateResolver;
 import org.springframework.stereotype.Component;
 
@@ -8,8 +10,10 @@ import java.util.Collection;
 import java.util.Map;
 
 // Decides whether a finished step's edge to a child is taken.
-// A condition is a template whose resolved value is checked for truthiness, e.g.
-// "{{trigger.body.urgent}}". Comparisons ("== 'paid'") aren't supported yet.
+// Out of a Logic step (Switch, Paths, If/Else, Filter): only if the step's output marks the
+// edge's path as taken, output.paths[sourceHandle] (a Filter's single output is "pass").
+// An edge may also carry an older-style condition: a template checked for truthiness, e.g.
+// "{{trigger.body.urgent}}". Both must hold.
 @Component
 public class ConditionEvaluator {
 
@@ -19,7 +23,14 @@ public class ConditionEvaluator {
         this.templateResolver = templateResolver;
     }
 
-    public boolean isTaken(GraphEdge edge, Map<String, Object> context) {
+    public boolean isTaken(GraphEdge edge, GraphNode source, Map<String, Object> context) {
+        if (source != null && LogicHandler.isLogic(source.type())) {
+            String output = edge.sourceHandle() == null ? "pass" : edge.sourceHandle();
+            Object taken = TemplateResolver.lookup("steps." + edge.from() + ".output.paths." + output, context);
+            if (!Boolean.TRUE.equals(taken)) {
+                return false;
+            }
+        }
         if (edge.condition() == null || edge.condition().isBlank()) {
             return true;
         }

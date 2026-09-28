@@ -11,6 +11,8 @@ import java.util.Set;
 //   select          one of options[].value
 //   keyvalue        object of string -> string (headers, row values)
 //   json            any JSON value
+//   conditions      {"match": "all"|"any", "conditions": [{"left", "op", "right"}]} (Logic steps)
+//   paths           [{"id", "name", "match", "conditions"}], each a named set of conditions (Logic steps)
 // secret: never shown back once saved (see SecretMasker). On text the whole value; on keyvalue
 // the values of sensitive-looking names (Authorization, X-Api-Key...).
 public record CatalogField(
@@ -30,7 +32,8 @@ public record CatalogField(
         secret = secret != null && secret;
     }
 
-    public static final Set<String> TYPES = Set.of("text", "textarea", "number", "boolean", "select", "keyvalue", "json");
+    public static final Set<String> TYPES = Set.of("text", "textarea", "number", "boolean", "select", "keyvalue", "json",
+            "conditions", "paths");
 
     public record Option(String value, String label) {
     }

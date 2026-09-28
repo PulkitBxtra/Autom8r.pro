@@ -60,7 +60,7 @@ class WorkflowServiceTest {
             List.of(WEBHOOK,
                     new GraphNode("a", "action", "HTTP", "act_http_request", "Make a Request", "http_request",
                             Map.of("method", "GET", "url", "https://example.com"), null, null, null, null)),
-            List.of(new GraphEdge("t", "a", null)));
+            List.of(new GraphEdge("t", "a", null, null)));
 
     private static CatalogService catalog() {
         try {
@@ -152,7 +152,7 @@ class WorkflowServiceTest {
                 List.of(WEBHOOK,
                         new GraphNode("a", "action", "GitHub", "act_github_create_issue", "Create Issue", "action",
                                 Map.of("repository", "octo/repo", "title", "Hi"), null, appId, connectionId, null)),
-                List.of(new GraphEdge("t", "a", null)));
+                List.of(new GraphEdge("t", "a", null, null)));
     }
 
     @Test
@@ -231,7 +231,7 @@ class WorkflowServiceTest {
         // A client claiming a GitHub step runs the HTTP handler (or naming it anything) doesn't stick.
         GraphNode sneaky = new GraphNode("a", "action", "Whatever", "act_github_create_issue", "Renamed", "http_request",
                 Map.of("repository", "octo/repo", "title", "Hi", "made_up", "x"), null, null, null, null);
-        workflowService.create("usr_1", "Flow", new WorkflowGraph(List.of(WEBHOOK, sneaky), List.of(new GraphEdge("t", "a", null))));
+        workflowService.create("usr_1", "Flow", new WorkflowGraph(List.of(WEBHOOK, sneaky), List.of(new GraphEdge("t", "a", null, null))));
 
         ArgumentCaptor<WorkflowVersion> saved = ArgumentCaptor.forClass(WorkflowVersion.class);
         verify(workflowVersionRepository).saveAndFlush(saved.capture());
@@ -249,7 +249,7 @@ class WorkflowServiceTest {
         GraphNode missingTitle = new GraphNode("a", "action", "GitHub", "act_github_create_issue", "Create Issue", null,
                 Map.of("repository", "octo/repo"), null, null, null, null);
         Exception e = assertThrows(IllegalArgumentException.class, () -> workflowService.create("usr_1", "Flow",
-                new WorkflowGraph(List.of(WEBHOOK, missingTitle), List.of(new GraphEdge("t", "a", null)))));
+                new WorkflowGraph(List.of(WEBHOOK, missingTitle), List.of(new GraphEdge("t", "a", null, null)))));
         assertEquals("Step \"Create Issue\" needs Title", e.getMessage());
         verify(workflowRepository, never()).save(any());
     }

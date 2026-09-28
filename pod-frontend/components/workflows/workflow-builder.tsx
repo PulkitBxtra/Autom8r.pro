@@ -12,10 +12,12 @@ import { createWorkflow, updateWorkflow } from "@/lib/api/workflows";
 import { ApiError } from "@/lib/api/client";
 import { useCatalog } from "@/lib/catalog-context";
 import type { Workflow } from "@/lib/types";
+import { logicOutputs } from "@/lib/logic";
 import {
   buildGraphFromWorkflow,
   buildInitialGraph,
   graphSnapshot,
+  reconcileOutputs,
   orderSteps,
   toWorkflowGraph,
   TRIGGER_NODE_ID,
@@ -80,11 +82,11 @@ export function WorkflowBuilder({ existing }: { existing?: Workflow }) {
   function handleChangeStep(patch: Partial<GraphNodeData>) {
     // The last save's complaint may no longer hold; the next save re-checks.
     setError(null);
-    setNodes((nds) =>
-      nds.map((n) =>
-        n.id === selectedNodeId ? { ...n, data: { ...n.data, ...patch } } : n
-      )
-    );
+    const node = nodes.find((n) => n.id === selectedNodeId);
+    if (!node) return;
+    const data = { ...node.data, ...patch };
+    setNodes((nds) => nds.map((n) => (n.id === node.id ? { ...n, data } : n)));
+    setEdges((eds) => reconcileOutputs(eds, node.id, logicOutputs(data.item, data.parameters)));
   }
 
   async function handleSave() {

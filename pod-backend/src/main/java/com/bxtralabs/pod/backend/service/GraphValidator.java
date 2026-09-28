@@ -83,7 +83,8 @@ public class GraphValidator {
             if (edge.to().equals(triggerId)) {
                 throw new IllegalArgumentException("Nothing can run before the trigger");
             }
-            if (!seen.add(edge.from() + "->" + edge.to())) {
+            // Two paths of one Logic step may lead to the same step; the same line twice may not.
+            if (!seen.add(edge.from() + ":" + edge.sourceHandle() + "->" + edge.to())) {
                 throw new IllegalArgumentException("Duplicate connection from " + edge.from() + " to " + edge.to());
             }
             children.computeIfAbsent(edge.from(), k -> new ArrayList<>()).add(edge.to());

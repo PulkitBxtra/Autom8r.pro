@@ -28,7 +28,7 @@ class GraphValidatorTest {
     }
 
     private static GraphEdge edge(String from, String to) {
-        return new GraphEdge(from, to, null);
+        return new GraphEdge(from, to, null, null);
     }
 
     private void assertRejected(WorkflowGraph graph, String messageFragment) {

@@ -95,7 +95,7 @@ public class TemplateResolver {
         return out.toString();
     }
 
-    static Object lookup(String path, Map<String, Object> context) {
+    public static Object lookup(String path, Map<String, Object> context) {
         Object current = context;
         for (String part : path.split("\\.")) {
             if (current instanceof Map<?, ?> map) {
