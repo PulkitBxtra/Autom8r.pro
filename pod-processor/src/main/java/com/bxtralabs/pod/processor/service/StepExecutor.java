@@ -10,6 +10,7 @@ import com.bxtralabs.pod.processor.repository.StepRunRepository;
 import com.bxtralabs.pod.processor.repository.WorkflowOwnerRepository;
 import com.bxtralabs.pod.processor.repository.WorkflowVersionRepository;
 import com.bxtralabs.pod.processor.service.connections.ConnectionCredentialsClient;
+import com.bxtralabs.pod.processor.service.handlers.AccountRejectedException;
 import com.bxtralabs.pod.processor.service.handlers.StepContext;
 import com.bxtralabs.pod.processor.service.handlers.StepCredentials;
 import com.bxtralabs.pod.processor.service.handlers.UncertainStepException;
@@ -65,6 +66,8 @@ public class StepExecutor {
         String error = null;
         boolean retryable = false;
         boolean uncertain = false;
+        StepCredentials credentials = null;
+        String owner = null;
         // Set by the claim above. If loading the step fails, this stays 0, the result below is
         // ignored as not matching any attempt, and the sweeper recovers the step.
         int attempt = 0;
@@ -84,11 +87,18 @@ public class StepExecutor {
             // If the check fails, the run shows the input as resolved, which is what the user needs to see.
             input = inputChecker.check(node, input);
             // Fetched per attempt, used for this call only: never part of the recorded input.
-            StepCredentials credentials = node.connectionId() == null ? null : credentialsFor(run, node);
+            if (node.connectionId() != null) {
+                owner = ownerOf(run);
+                credentials = credentialsClient.fetch(node.connectionId(), owner, node.appId());
+            }
             // Uncertain means an earlier attempt of this step may already have done the work.
             StepContext context = new StepContext(step.getId(), step.getAttempt(),
                     step.getFirstStartedAt() == null ? step.getStartedAt() : step.getFirstStartedAt(), step.isUncertain());
             output = handlers.handlerFor(node).execute(node, input, credentials, context);
+        } catch (AccountRejectedException e) {
+            // Mark the connection so the Connections page shows it and later steps stop early.
+            boolean marked = credentialsClient.reportRejected(credentials, owner, e.getMessage());
+            error = e.getMessage() + (marked ? " The connection is now marked as needing reconnecting." : "");
         } catch (PermanentStepException e) {
             error = e.getMessage();
         } catch (UncertainStepException e) {
@@ -108,11 +118,10 @@ public class StepExecutor {
         resultPublisher.publish(new StepResultMessage(runId, stepRunId, input, output, error, retryable, attempt, uncertain));
     }
 
-    private StepCredentials credentialsFor(ExecutionRun run, GraphNode node) throws PermanentStepException {
-        String owner = workflowOwners.findById(run.getWorkflowId())
+    private String ownerOf(ExecutionRun run) throws PermanentStepException {
+        return workflowOwners.findById(run.getWorkflowId())
                 .orElseThrow(() -> new PermanentStepException("This run's workflow no longer exists"))
                 .getUserId();
-        return credentialsClient.fetch(node.connectionId(), owner, node.appId());
     }
 
     private WorkflowGraph graphFor(ExecutionRun run) {

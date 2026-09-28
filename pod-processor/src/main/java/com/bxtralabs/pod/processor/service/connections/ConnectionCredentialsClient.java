@@ -57,7 +57,9 @@ public class ConnectionCredentialsClient {
             Map<?, ?> body = jsonMapper.readValue(response.body(), Map.class);
             @SuppressWarnings("unchecked")
             Map<String, String> values = (Map<String, String>) body.get("credentials");
-            return new StepCredentials(connectionId, appId, String.valueOf(body.get("authType")), values);
+            Object version = body.get("version");
+            return new StepCredentials(connectionId, appId, String.valueOf(body.get("authType")), values,
+                    version == null ? null : String.valueOf(version));
         }
         String error = errorOf(response.body());
         switch (status) {
@@ -68,6 +70,30 @@ public class ConnectionCredentialsClient {
                     "The connections service refused this pod (check INTERNAL_API_TOKEN is the same on both)");
             default -> throw new IllegalStateException("Couldn't get this step's account right now"
                     + (error.isBlank() ? " (HTTP " + status + ")" : ": " + error));
+        }
+    }
+
+    // Tells pod-connector the app rejected these credentials, so the connection shows as needing
+    // reconnecting. Best effort: the step fails either way. Returns whether it was marked.
+    public boolean reportRejected(StepCredentials credentials, String userId, String reason) {
+        if (credentials == null || credentials.version() == null) {
+            return false;
+        }
+        try {
+            HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + "/internal/connections/"
+                            + credentials.connectionId() + "/rejected"))
+                    .timeout(Duration.ofSeconds(10))
+                    .header("Content-Type", "application/json")
+                    .header("X-Internal-Token", internalToken)
+                    .POST(HttpRequest.BodyPublishers.ofString(jsonMapper.writeValueAsString(Map.of(
+                            "userId", userId, "appId", credentials.appId(), "version", credentials.version(), "reason", reason))))
+                    .build();
+            HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
+            return response.statusCode() == 200 && Boolean.TRUE.equals(jsonMapper.readValue(response.body(), Map.class).get("marked"));
+        } catch (Exception e) {
+            if (e instanceof InterruptedException) Thread.currentThread().interrupt();
+            System.out.println("Couldn't report rejected credentials for " + credentials.connectionId() + ": " + e.getClass().getSimpleName());
+            return false;
         }
     }
 

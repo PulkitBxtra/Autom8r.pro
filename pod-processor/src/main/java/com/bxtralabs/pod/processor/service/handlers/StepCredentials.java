@@ -6,7 +6,14 @@ import java.util.Map;
 // ("access_token"), a token connection's fields ("token", "apiKey"...), or an HTTP connection's
 // header ("headerName", "headerValue"). Handed to the handler only; never stored on the step
 // run, logged, or put in an error message, which is why toString leaves the values out.
-public record StepCredentials(String connectionId, String appId, String authType, Map<String, String> values) {
+// version: which stored credentials these are (from pod-connector), named when reporting that the
+// app rejected them, so a report about since-replaced credentials is ignored.
+public record StepCredentials(String connectionId, String appId, String authType, Map<String, String> values,
+                              String version) {
+
+    public StepCredentials(String connectionId, String appId, String authType, Map<String, String> values) {
+        this(connectionId, appId, authType, values, null);
+    }
 
     public String get(String key) {
         return values == null ? null : values.get(key);

@@ -28,6 +28,7 @@ class InternalConnectionControllerTest {
         c.setUserId(user);
         c.setAppId(app);
         c.setAuthType(authType);
+        c.setCredentials("v1:ciphertext");
         return c;
     }
 
@@ -66,5 +67,19 @@ class InternalConnectionControllerTest {
         assertThrows(InternalAuth.InternalAuthException.class, () -> new InternalAuth("").require(""));
         assertThrows(InternalAuth.InternalAuthException.class, () -> new InternalAuth("short").require("short"));
         assertDoesNotThrow(() -> new InternalAuth(TOKEN).require(" " + TOKEN + " "));
+    }
+
+    @Test
+    void theCredentialsComeWithTheirVersionForALaterRejectedReport() {
+        when(repo.findById("con_1")).thenReturn(Optional.of(connection("usr_1", "app_github", Connection.AUTH_OAUTH)));
+        when(tokens.getValidCredentials("con_1")).thenReturn(Map.of("access_token", "gho_x"));
+        String version = controller.credentials(TOKEN, "con_1", request("usr_1", "app_github")).version();
+        assertEquals(TokenService.version(connection("usr_1", "app_github", Connection.AUTH_OAUTH)), version);
+
+        when(tokens.markRejected("con_1", "usr_1", "app_github", version, "Bad credentials")).thenReturn(true);
+        assertTrue(controller.rejected(TOKEN, "con_1",
+                new InternalConnectionController.RejectedRequest("usr_1", "app_github", version, "Bad credentials")).marked());
+        assertThrows(InternalAuth.InternalAuthException.class, () -> controller.rejected(null, "con_1",
+                new InternalConnectionController.RejectedRequest("usr_1", "app_github", version, "x")));
     }
 }

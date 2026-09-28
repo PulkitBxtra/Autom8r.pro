@@ -154,6 +154,33 @@ public class TokenService {
         throw new TokenRefreshException(reason);
     }
 
+    // A step's app call rejected the credentials handed out as `version` (see version()): the
+    // user has to reconnect. Ignored if the credentials changed since (reconnected, or refreshed:
+    // the rejected token is simply old) or the connection isn't the caller's. Returns whether it
+    // was marked.
+    @Transactional
+    public boolean markRejected(String connectionId, String userId, String appId, String version, String reason) {
+        Connection c = repository.findByIdForUpdate(connectionId).orElse(null);
+        if (c == null || !c.getUserId().equals(userId) || !c.getAppId().equals(appId)
+                || !Connection.STATUS_ACTIVE.equals(c.getStatus()) || !version(c).equals(version)) {
+            return false;
+        }
+        markNeedsReauth(c, reason);
+        return true;
+    }
+
+    // Identifies the credentials as stored right now: changes whenever they're replaced
+    // (reconnect, token refresh). A fingerprint of the ciphertext, so it reveals nothing.
+    public static String version(Connection c) {
+        try {
+            byte[] hash = java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(c.getCredentials().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            return java.util.HexFormat.of().formatHex(hash, 0, 12);
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
     private void markNeedsReauth(Connection c, String reason) {
         c.setStatus(Connection.STATUS_NEEDS_REAUTH);
         c.setLastError(reason);

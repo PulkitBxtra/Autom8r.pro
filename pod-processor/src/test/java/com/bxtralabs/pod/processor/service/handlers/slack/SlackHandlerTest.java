@@ -125,4 +125,13 @@ class SlackHandlerTest {
         answer = "down";
         assertThrows(com.bxtralabs.pod.processor.service.handlers.UncertainStepException.class, () -> post(Map.of("channel", "#a", "text", "x")));
     }
+
+    @Test
+    void aRevokedTokenIsReportedAsTheAccountsProblem() {
+        answer = "{\"ok\":false,\"error\":\"token_revoked\"}";
+        assertThrows(com.bxtralabs.pod.processor.service.handlers.AccountRejectedException.class, () -> post(Map.of("channel", "#a", "text", "x")));
+        answer = "{\"ok\":false,\"error\":\"channel_not_found\"}";
+        assertFalse(assertThrows(PermanentStepException.class, () -> post(Map.of("channel", "#a", "text", "x")))
+                instanceof com.bxtralabs.pod.processor.service.handlers.AccountRejectedException);
+    }
 }

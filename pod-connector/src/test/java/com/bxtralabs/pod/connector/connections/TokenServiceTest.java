@@ -288,4 +288,37 @@ class TokenServiceTest {
         assertEquals(Connection.STATUS_NEEDS_REAUTH, connection.getStatus());
         assertEquals(0, refreshCalls.get());
     }
+
+    // ---- C6: an app rejecting the credentials mid-run ----
+
+    @Test
+    void aRejectionOfTheCurrentCredentialsMarksTheConnectionForReconnecting() {
+        String version = TokenService.version(connection);
+        assertTrue(service.markRejected("con_1", "usr_1", "app_github", version, "GitHub no longer accepts this token"));
+        assertEquals(Connection.STATUS_NEEDS_REAUTH, connection.getStatus());
+        assertEquals("GitHub no longer accepts this token", connection.getLastError());
+        // Later steps stop early instead of calling the app with a dead token.
+        assertThrows(ConnectionNeedsReauthException.class, () -> service.getValidCredentials("con_1"));
+    }
+
+    @Test
+    void aRejectionOfOlderCredentialsIsIgnored() {
+        String before = TokenService.version(connection);
+        // The user reconnected (or the token was refreshed) after the step fetched its token.
+        connection.setCredentials(cipher.encrypt(Map.of("access_token", "A1", "refresh_token", "R1")));
+        assertNotEquals(before, TokenService.version(connection));
+        assertFalse(service.markRejected("con_1", "usr_1", "app_github", before, "old token rejected"));
+        assertEquals(Connection.STATUS_ACTIVE, connection.getStatus());
+    }
+
+    @Test
+    void onlyTheOwnersStepCanReportAndTheVersionRevealsNothing() {
+        String version = TokenService.version(connection);
+        assertFalse(service.markRejected("con_1", "usr_2", "app_github", version, "x"));
+        assertFalse(service.markRejected("con_1", "usr_1", "app_slack", version, "x"));
+        assertFalse(service.markRejected("con_missing", "usr_1", "app_github", version, "x"));
+        assertEquals(Connection.STATUS_ACTIVE, connection.getStatus());
+        assertEquals(24, version.length());
+        assertFalse(connection.getCredentials().contains(version));
+    }
 }

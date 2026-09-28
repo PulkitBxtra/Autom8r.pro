@@ -141,4 +141,12 @@ class GitHubHandlerTest {
         assertTrue(handler.supports(node("github.create_comment")));
         assertFalse(handler.supports(node("slack.post_message")));
     }
+
+    @Test
+    void aRejectedTokenIsReportedAsTheAccountsProblem() {
+        assertThrows(com.bxtralabs.pod.processor.service.handlers.AccountRejectedException.class, () -> issue("octo/revoked", null, OAUTH));
+        // but no access to one repository is not the account's fault
+        assertFalse(assertThrows(PermanentStepException.class, () -> issue("octo/denied", null, OAUTH))
+                instanceof com.bxtralabs.pod.processor.service.handlers.AccountRejectedException);
+    }
 }

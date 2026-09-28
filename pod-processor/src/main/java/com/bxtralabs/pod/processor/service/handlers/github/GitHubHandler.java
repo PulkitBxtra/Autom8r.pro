@@ -1,6 +1,7 @@
 package com.bxtralabs.pod.processor.service.handlers.github;
 
 import com.bxtralabs.pod.processor.model.graph.GraphNode;
+import com.bxtralabs.pod.processor.service.handlers.AccountRejectedException;
 import com.bxtralabs.pod.processor.service.handlers.ActionHandler;
 import com.bxtralabs.pod.processor.service.handlers.AppCalls;
 import com.bxtralabs.pod.processor.service.handlers.StepContext;
@@ -150,6 +151,9 @@ public class GitHubHandler implements ActionHandler {
                 .header("User-Agent", "Autom8r")
                 .GET().build();
         HttpResponse<String> response = AppCalls.send(http, request, "GitHub", false);
+        if (response.statusCode() == 401) {
+            throw new AccountRejectedException("GitHub no longer accepts this account's token. Reconnect it on the Connections page.");
+        }
         if (response.statusCode() != 200) {
             throw new IllegalStateException("Couldn't check GitHub for an earlier attempt's result (HTTP "
                     + response.statusCode() + "); will try again");
@@ -187,8 +191,10 @@ public class GitHubHandler implements ActionHandler {
         if (status >= 500) {
             throw AppCalls.uncertainServerError("GitHub", status, what);
         }
+        if (status == 401) {
+            throw new AccountRejectedException("GitHub no longer accepts this account's token. Reconnect it on the Connections page.");
+        }
         throw new PermanentStepException(switch (status) {
-            case 401 -> "GitHub no longer accepts this account's token. Reconnect it on the Connections page.";
             case 403 -> "The GitHub account can't do this on " + what + ": " + message;
             case 404 -> "GitHub couldn't find " + what + ", or the account can't see it";
             case 410 -> "Issues are turned off for " + what;

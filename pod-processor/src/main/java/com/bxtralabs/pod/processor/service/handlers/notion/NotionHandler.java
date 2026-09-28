@@ -1,6 +1,7 @@
 package com.bxtralabs.pod.processor.service.handlers.notion;
 
 import com.bxtralabs.pod.processor.model.graph.GraphNode;
+import com.bxtralabs.pod.processor.service.handlers.AccountRejectedException;
 import com.bxtralabs.pod.processor.service.handlers.ActionHandler;
 import com.bxtralabs.pod.processor.service.handlers.AppCalls;
 import com.bxtralabs.pod.processor.service.handlers.StepContext;
@@ -233,8 +234,10 @@ public class NotionHandler implements ActionHandler {
         if (status == 429 || status == 409 || status >= 500) {
             throw new IllegalStateException("Notion is busy or had a problem (" + (code.isEmpty() ? "HTTP " + status : code) + "); will try again");
         }
+        if (status == 401) {
+            throw new AccountRejectedException("Notion no longer accepts this account's access. Reconnect it on the Connections page.");
+        }
         throw new PermanentStepException(switch (status) {
-            case 401 -> "Notion no longer accepts this account's secret. Reconnect it on the Connections page.";
             case 403 -> "The Notion integration isn't allowed to do this on " + what + ": " + message;
             case 404 -> "Notion couldn't find " + what + ". Share it with the integration (… → Connections in Notion), then run again.";
             default -> "Notion rejected the request: " + message;

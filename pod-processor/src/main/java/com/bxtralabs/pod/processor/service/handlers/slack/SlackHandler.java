@@ -1,6 +1,7 @@
 package com.bxtralabs.pod.processor.service.handlers.slack;
 
 import com.bxtralabs.pod.processor.model.graph.GraphNode;
+import com.bxtralabs.pod.processor.service.handlers.AccountRejectedException;
 import com.bxtralabs.pod.processor.service.handlers.ActionHandler;
 import com.bxtralabs.pod.processor.service.handlers.AppCalls;
 import com.bxtralabs.pod.processor.service.handlers.StepContext;
@@ -181,6 +182,8 @@ public class SlackHandler implements ActionHandler {
     private static Map<?, ?> checking(Lookup lookup) throws Exception {
         try {
             return lookup.get();
+        } catch (AccountRejectedException e) {
+            throw e; // the token itself is dead: that's the problem to report
         } catch (PermanentStepException e) {
             throw new PermanentStepException("An earlier try may already have posted this message, and Slack won't let "
                     + "Autom8r check (" + e.getMessage() + "). Not posting again to avoid a duplicate; give the Slack app "
@@ -226,6 +229,9 @@ public class SlackHandler implements ActionHandler {
         }
         if (TEMPORARY.contains(error)) {
             throw new IllegalStateException("Slack: " + error + "; will try again");
+        }
+        if (Set.of("invalid_auth", "not_authed", "token_revoked", "token_expired", "account_inactive").contains(error)) {
+            throw new AccountRejectedException(explain(error, res, what));
         }
         throw new PermanentStepException(explain(error, res, what));
     }

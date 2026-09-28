@@ -33,7 +33,9 @@ class ConnectionCredentialsClientTest {
             sentBody.set(new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
             String id = ex.getRequestURI().getPath().split("/")[3];
             switch (id) {
-                case "con_ok" -> respond(ex, 200, "{\"connectionId\":\"con_ok\",\"appId\":\"app_github\",\"authType\":\"OAUTH\",\"credentials\":{\"access_token\":\"gho_1\"}}");
+                case "con_ok" -> respond(ex, 200, ex.getRequestURI().getPath().endsWith("/rejected")
+                        ? "{\"marked\":true}"
+                        : "{\"connectionId\":\"con_ok\",\"appId\":\"app_github\",\"authType\":\"OAUTH\",\"credentials\":{\"access_token\":\"gho_1\"},\"version\":\"v123\"}");
                 case "con_gone" -> respond(ex, 404, "{\"error\":\"Connection not found: con_gone\"}");
                 case "con_revoked" -> respond(ex, 409, "{\"error\":\"GitHub needs to be reconnected\",\"code\":\"needs_reauth\"}");
                 case "con_badtoken" -> respond(ex, 401, "{\"error\":\"Not allowed\"}");
@@ -83,5 +85,18 @@ class ConnectionCredentialsClientTest {
         assertThrows(IllegalStateException.class, () -> client.fetch("con_badtoken", "u", "a"));
         ConnectionCredentialsClient nowhere = new ConnectionCredentialsClient(JsonMapper.builder().build(), "http://127.0.0.1:1", "x");
         assertThrows(IllegalStateException.class, () -> nowhere.fetch("con_ok", "u", "a"));
+    }
+
+    @Test
+    void reportsRejectedCredentialsByTheirVersion() throws Exception {
+        StepCredentials c = client.fetch("con_ok", "usr_1", "app_github");
+        assertEquals("v123", c.version());
+        assertTrue(client.reportRejected(c, "usr_1", "GitHub no longer accepts this token"));
+        assertEquals(Map.of("userId", "usr_1", "appId", "app_github", "version", "v123", "reason", "GitHub no longer accepts this token"),
+                JsonMapper.builder().build().readValue(sentBody.get(), Map.class));
+        // Best effort: never throws, and without a version there's nothing to report.
+        assertFalse(client.reportRejected(new StepCredentials("con_ok", "app_github", "OAUTH", Map.of()), "usr_1", "x"));
+        ConnectionCredentialsClient nowhere = new ConnectionCredentialsClient(JsonMapper.builder().build(), "http://127.0.0.1:1", "x");
+        assertFalse(nowhere.reportRejected(c, "usr_1", "x"));
     }
 }
