@@ -124,7 +124,8 @@ export type CredentialField = {
 };
 
 // An app that can be connected, and how (mirrors pod-connector's ConnectorView).
-// tokenFields is null for OAuth-only apps.
+// tokenFields is null for OAuth-only apps. oauthAvailable: the app supports OAuth, so the
+// user can sign in with their own OAuth app; platformOAuthAvailable: the server's app too.
 export type ConnectorInfo = {
   appId: string;
   name: string;
@@ -134,6 +135,10 @@ export type ConnectorInfo = {
   oauthProvider: string | null;
   oauthProviderName: string | null;
   oauthAvailable: boolean;
+  platformOAuthAvailable: boolean;
+  // Where to create an OAuth app with the provider, and the callback URL to register in it.
+  oauthSetupUrl: string | null;
+  callbackUrl: string | null;
 };
 
 export type ConnectionStatus = "ACTIVE" | "NEEDS_REAUTH";
@@ -147,9 +152,24 @@ export type AppConnection = {
   authType: "TOKEN" | "OAUTH";
   status: ConnectionStatus;
   lastError: string | null;
+  // The user's own OAuth app it signed in through; null = the server's app (or a token).
+  oauthClientId: string | null;
   createdAt: number | null;
   updatedAt: number | null;
   lastUsedAt: number | null;
+};
+
+// One of the user's own OAuth apps (mirrors pod-connector's OAuthClientView). The client
+// secret is never sent back.
+export type OAuthClient = {
+  id: string;
+  provider: string;
+  providerName: string;
+  name: string;
+  clientId: string;
+  connectionCount: number;
+  createdAt: number | null;
+  updatedAt: number | null;
 };
 
 export type AuthUser = {

@@ -1,3 +1,4 @@
+import { AppLogo } from "@/components/ui/app-logo";
 import { APP_CATALOG } from "@/lib/mock-catalog";
 
 export function AppMarquee() {
@@ -24,9 +25,7 @@ export function AppMarquee() {
               key={`${app.id}-${i}`}
               className="flex items-center gap-3 rounded-2xl border border-border bg-surface-raised px-6 py-4"
             >
-              <div className="flex size-9 items-center justify-center rounded-lg bg-lemon text-sm font-black text-black">
-                {app.name[0]}
-              </div>
+              <AppLogo appId={app.id} name={app.name} />
               <span className="whitespace-nowrap text-sm font-semibold">
                 {app.name}
               </span>

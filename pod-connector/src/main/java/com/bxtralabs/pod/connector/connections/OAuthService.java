@@ -1,12 +1,13 @@
 package com.bxtralabs.pod.connector.connections;
 
 import com.bxtralabs.pod.connector.connections.Connector.CredentialField;
+import com.bxtralabs.pod.connector.connections.OAuthClientService.ClientCredentials;
 import com.bxtralabs.pod.connector.connections.OAuthProviders.Provider;
 import com.bxtralabs.pod.connector.connections.ProviderHttp.TokenResponse;
 import com.bxtralabs.pod.connector.model.Connection;
+import com.bxtralabs.pod.connector.model.OAuthClient;
 import com.bxtralabs.pod.connector.model.OAuthState;
 import com.bxtralabs.pod.connector.repository.OAuthStateRepository;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.net.URLEncoder;
@@ -17,7 +18,8 @@ import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-// "Connect with <provider>": authorization code flow with PKCE.
+// "Connect with <provider>": authorization code flow with PKCE, through either the server's
+// OAuth app or one of the user's own (OAuthClientService).
 //  1. start(): remember who's signing in under a random single-use `state`, plus a PKCE
 //     verifier; send the browser to the provider with the state and the verifier's hash.
 //  2. The provider sends the browser back to /oauth/callback with a code and the state.
@@ -32,30 +34,26 @@ public class OAuthService {
     private final OAuthProviders providers;
     private final OAuthStateRepository states;
     private final ConnectionService connections;
+    private final OAuthClientService clients;
     private final CredentialCipher cipher;
     private final ProviderHttp http;
-    private final String callbackUrl;
     private final SecureRandom random = new SecureRandom();
 
     public OAuthService(ConnectorRegistry registry, OAuthProviders providers, OAuthStateRepository states,
-                        ConnectionService connections, CredentialCipher cipher, ProviderHttp http,
-                        @Value("${app.public-url:http://localhost:8084}") String publicUrl) {
+                        ConnectionService connections, OAuthClientService clients, CredentialCipher cipher,
+                        ProviderHttp http) {
         this.registry = registry;
         this.providers = providers;
         this.states = states;
         this.connections = connections;
+        this.clients = clients;
         this.cipher = cipher;
         this.http = http;
-        // Must match the callback URL registered with the provider exactly.
-        this.callbackUrl = publicUrl.replaceAll("/+$", "") + "/oauth/callback";
-    }
-
-    public String callbackUrl() {
-        return callbackUrl;
     }
 
     // Returns the provider URL to open (in a popup). connectionId: reconnect that connection.
-    public String start(String userId, String appId, String connectionId) {
+    // oauthClientId: sign in through that OAuth app of the user's; null uses the server's app.
+    public String start(String userId, String appId, String connectionId, String oauthClientId) {
         if (!cipher.isConfigured()) {
             throw new ConnectionsNotConfiguredException();
         }
@@ -64,8 +62,21 @@ public class OAuthService {
         if (connector.oauthProvider() == null) {
             throw new IllegalArgumentException(connector.name() + " doesn't support signing in with OAuth");
         }
-        Provider provider = providers.find(connector.oauthProvider()).filter(Provider::configured)
-                .orElseThrow(() -> new IllegalArgumentException(connector.name() + " sign-in isn't set up on this server yet"));
+        Provider provider = providers.find(connector.oauthProvider())
+                .orElseThrow(() -> new IllegalArgumentException(connector.name() + " doesn't support signing in with OAuth"));
+        String clientId;
+        if (oauthClientId != null) {
+            OAuthClient client = clients.owned(userId, oauthClientId);
+            if (!client.getProvider().equals(provider.id())) {
+                throw new IllegalArgumentException("\"" + client.getName() + "\" is not a " + provider.displayName() + " OAuth app");
+            }
+            clientId = client.getClientId();
+        } else if (provider.configured()) {
+            clientId = provider.clientId();
+        } else {
+            throw new IllegalArgumentException(connector.name()
+                    + " sign-in with the server's app isn't set up. Use your own OAuth app.");
+        }
         if (connectionId != null && !connections.owned(userId, connectionId).getAppId().equals(appId)) {
             throw new IllegalArgumentException("That connection belongs to a different app");
         }
@@ -74,13 +85,13 @@ public class OAuthService {
         states.deleteOlderThan(now - STATE_TTL_MS);
         String state = randomToken(32);
         String verifier = randomToken(48);
-        states.save(new OAuthState(state, userId, appId, provider.id(), connectionId,
+        states.save(new OAuthState(state, userId, appId, provider.id(), connectionId, oauthClientId,
                 cipher.encrypt(Map.of("v", verifier)), now));
 
         Map<String, String> params = new LinkedHashMap<>();
         params.put("response_type", "code");
-        params.put("client_id", provider.clientId());
-        params.put("redirect_uri", callbackUrl);
+        params.put("client_id", clientId);
+        params.put("redirect_uri", providers.callbackUrl());
         params.put("scope", provider.scopes());
         params.put("state", state);
         params.put("code_challenge", challenge(verifier));
@@ -111,31 +122,35 @@ public class OAuthService {
         if (s.getCreatedAt() < System.currentTimeMillis() - STATE_TTL_MS) {
             return Result.failed(s.getAppId(), "This sign-in took too long and expired. Start again.");
         }
+        Provider provider = providers.find(s.getProvider()).orElse(null);
+        if (provider == null) {
+            return Result.failed(s.getAppId(), "This OAuth provider is no longer supported.");
+        }
         if (error != null) {
             return Result.failed(s.getAppId(), "access_denied".equals(error)
                     ? "Sign-in was cancelled."
-                    : "The provider reported an error: " + (errorDescription != null ? errorDescription : error));
+                    : explain(provider, error, errorDescription, s.getOauthClientId() != null));
         }
         if (code == null || code.isBlank()) {
             return Result.failed(s.getAppId(), "The provider didn't send an authorization code. Start again.");
         }
 
         try {
-            Provider provider = providers.find(s.getProvider()).filter(Provider::configured)
-                    .orElseThrow(() -> new IllegalStateException("OAuth provider is no longer configured"));
+            ClientCredentials client = clients.credentialsFor(provider, s.getOauthClientId());
             Map<String, String> form = new LinkedHashMap<>();
             form.put("grant_type", "authorization_code");
             form.put("code", code);
-            form.put("redirect_uri", callbackUrl);
-            form.put("client_id", provider.clientId());
-            form.put("client_secret", provider.clientSecret());
+            form.put("redirect_uri", providers.callbackUrl());
+            form.put("client_id", client.clientId());
+            form.put("client_secret", client.clientSecret());
             form.put("code_verifier", cipher.decrypt(s.getCodeVerifier()).get("v"));
             TokenResponse response = http.postForm(provider.displayName(), provider.tokenUrl(), form);
 
             Object access = response.body().get(TokenService.ACCESS_TOKEN);
             if (response.error() != null || response.status() >= 400 || access == null) {
-                return Result.failed(s.getAppId(), provider.displayName() + " didn't complete the sign-in ("
-                        + (response.error() != null ? response.error() : "HTTP " + response.status()) + "). Start again.");
+                return Result.failed(s.getAppId(), response.error() != null
+                        ? explain(provider, response.error(), null, s.getOauthClientId() != null)
+                        : provider.displayName() + " didn't complete the sign-in (HTTP " + response.status() + "). Start again.");
             }
 
             Map<String, String> tokens = new LinkedHashMap<>();
@@ -149,13 +164,35 @@ public class OAuthService {
             String label = accountLabel(s.getAppId(), provider, String.valueOf(access));
 
             ConnectionService.ConnectionView saved = connections.saveOAuth(s.getUserId(), s.getAppId(),
-                    s.getConnectionId(), label, tokens, scope == null ? null : String.valueOf(scope),
+                    s.getConnectionId(), s.getOauthClientId(), label, tokens, scope == null ? null : String.valueOf(scope),
                     TokenService.expiresAt(response.body(), now));
             return new Result(true, saved.id(), s.getAppId(), null);
         } catch (RuntimeException e) {
             // Includes ConnectionVerificationException (provider unreachable, identity check failed).
             return Result.failed(s.getAppId(), e.getMessage() != null ? e.getMessage() : "Sign-in failed. Start again.");
         }
+    }
+
+    // Provider errors in words the user can act on. With their own OAuth app, most failures are
+    // a mistyped client id/secret or a callback URL that doesn't match ours.
+    private String explain(Provider provider, String error, String description, boolean ownApp) {
+        String name = provider.displayName();
+        if (isClientCredentialsError(error)) {
+            return ownApp
+                    ? name + " rejected your OAuth app's client ID or secret (" + error + "). Check them and try again."
+                    : name + " rejected this server's OAuth app (" + error + "). Ask the administrator to check it.";
+        }
+        if ("redirect_uri_mismatch".equals(error)) {
+            return "The callback URL registered in the " + name + " OAuth app doesn't match "
+                    + providers.callbackUrl() + ". Update it there and try again.";
+        }
+        return name + " didn't complete the sign-in (" + (description != null ? description : error) + "). Start again.";
+    }
+
+    // GitHub says incorrect_client_credentials; RFC 6749 providers say invalid_client.
+    static boolean isClientCredentialsError(String error) {
+        return "invalid_client".equals(error) || "incorrect_client_credentials".equals(error)
+                || "unauthorized_client".equals(error);
     }
 
     // Names the account with the same "who am I" check the app's token form uses, passing the

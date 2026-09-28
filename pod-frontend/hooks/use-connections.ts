@@ -2,15 +2,16 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth-context";
-import { listConnections, listConnectors } from "@/lib/api/connections";
+import { listConnections, listConnectors, listOAuthClients } from "@/lib/api/connections";
 import { ApiError } from "@/lib/api/client";
-import type { AppConnection, ConnectorInfo } from "@/lib/types";
+import type { AppConnection, ConnectorInfo, OAuthClient } from "@/lib/types";
 
-// The caller's connections plus the connectable apps, from pod-connector.
+// The caller's connections, their own OAuth apps, and the connectable apps, from pod-connector.
 export function useConnections() {
   const { token } = useAuth();
   const [connections, setConnections] = useState<AppConnection[]>([]);
   const [connectors, setConnectors] = useState<ConnectorInfo[]>([]);
+  const [oauthClients, setOAuthClients] = useState<OAuthClient[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<{ status: number; message: string } | null>(null);
 
@@ -18,9 +19,14 @@ export function useConnections() {
     if (!token) return;
     setError(null);
     try {
-      const [list, apps] = await Promise.all([listConnections(token), listConnectors(token)]);
+      const [list, apps, clients] = await Promise.all([
+        listConnections(token),
+        listConnectors(token),
+        listOAuthClients(token),
+      ]);
       setConnections(list);
       setConnectors(apps);
+      setOAuthClients(clients);
     } catch (err) {
       setError(
         err instanceof ApiError
@@ -39,5 +45,5 @@ export function useConnections() {
     refresh();
   }, [refresh]);
 
-  return { connections, connectors, loading, error, refresh };
+  return { connections, connectors, oauthClients, loading, error, refresh };
 }

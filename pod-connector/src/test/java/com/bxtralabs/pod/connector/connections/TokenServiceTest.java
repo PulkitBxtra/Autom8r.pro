@@ -1,7 +1,9 @@
 package com.bxtralabs.pod.connector.connections;
 
 import com.bxtralabs.pod.connector.model.Connection;
+import com.bxtralabs.pod.connector.model.OAuthClient;
 import com.bxtralabs.pod.connector.repository.ConnectionRepository;
+import com.bxtralabs.pod.connector.repository.OAuthClientRepository;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
@@ -29,11 +31,12 @@ class TokenServiceTest {
     private HttpServer server;
     // Stand-in token endpoint behaviour.
     private volatile String validRefreshToken = "R0";
-    private volatile String mode = "rotate"; // rotate | no-rotate | invalid_grant | down
+    private volatile String mode = "rotate"; // rotate | no-rotate | invalid_grant | down | bad_client
     private final AtomicInteger refreshCalls = new AtomicInteger();
     private volatile Map<String, String> lastForm = Map.of();
 
     private final ConnectionRepository repo = mock(ConnectionRepository.class);
+    private final OAuthClientRepository clientRepo = mock(OAuthClientRepository.class);
     private CredentialCipher cipher;
     private TokenService service;
     private Connection connection;
@@ -66,6 +69,8 @@ class TokenServiceTest {
             switch (mode) {
                 case "down" -> respond(ex, 503, "{\"error\":\"temporarily_unavailable\"}");
                 case "invalid_grant" -> respond(ex, 400, "{\"error\":\"invalid_grant\"}");
+                // GitHub answers a wrong client secret with 200 + this error.
+                case "bad_client" -> respond(ex, 200, "{\"error\":\"incorrect_client_credentials\"}");
                 default -> {
                     if (!f.get("refresh_token").equals(validRefreshToken)) {
                         respond(ex, 400, "{\"error\":\"invalid_grant\"}");
@@ -89,8 +94,18 @@ class TokenServiceTest {
         ConnectorRegistry registry = new ConnectorRegistry(List.of(
                 new Connector("app_github", "GitHub", "", null, "github"),
                 new Connector("app_stripe", "Stripe", "", null, null)));
-        OAuthProviders providers = new OAuthProviders(base, "client-1", "secret-1", "repo", "", "");
-        service = new TokenService(repo, registry, providers, cipher, new ProviderHttp(JSON), 60_000);
+        OAuthProviders providers = new OAuthProviders(base, "client-1", "secret-1", "repo", "", "", "http://localhost:8084");
+        OAuthClientService clients = new OAuthClientService(clientRepo, repo, providers, cipher);
+        service = new TokenService(repo, registry, providers, clients, cipher, new ProviderHttp(JSON), 60_000);
+
+        OAuthClient own = new OAuthClient();
+        own.setId("oac_1");
+        own.setUserId("usr_1");
+        own.setProvider("github");
+        own.setName("My GitHub App");
+        own.setClientId("own-client");
+        own.setClientSecret(cipher.encrypt(Map.of("secret", "own-secret")));
+        when(clientRepo.findById("oac_1")).thenReturn(Optional.of(own));
 
         connection = new Connection();
         connection.setId("con_1");
@@ -229,5 +244,48 @@ class TokenServiceTest {
         assertEquals(1_000 + 60_000L, TokenService.expiresAt(Map.of("expires_in", "60"), 1_000));
         assertNull(TokenService.expiresAt(Map.of(), 1_000));
         assertNull(TokenService.expiresAt(Map.of("expires_in", "soon"), 1_000));
+    }
+
+    // ---------- the user's own OAuth app ----------
+
+    @Test
+    void connectionFromTheirOwnAppRefreshesWithThatAppsClient() {
+        connection.setOauthClientId("oac_1");
+        connection.setExpiresAt(System.currentTimeMillis() - 1);
+
+        assertEquals("A1", service.getValidCredentials("con_1").get("access_token"));
+        assertEquals("own-client", lastForm.get("client_id"));
+        assertEquals("own-secret", lastForm.get("client_secret"));
+    }
+
+    @Test
+    void theirAppRejectingItsSecretNeedsTheUserToFixIt() {
+        mode = "bad_client";
+        connection.setOauthClientId("oac_1");
+        connection.setExpiresAt(System.currentTimeMillis() - 1);
+
+        assertThrows(ConnectionNeedsReauthException.class, () -> service.getValidCredentials("con_1"));
+        assertEquals(Connection.STATUS_NEEDS_REAUTH, connection.getStatus());
+        assertTrue(connection.getLastError().contains("your OAuth app's client ID or secret"), connection.getLastError());
+    }
+
+    @Test
+    void theServersAppRejectedIsTemporarySinceFixingTheConfigFixesEveryone() {
+        mode = "bad_client";
+        connection.setExpiresAt(System.currentTimeMillis() - 1);
+
+        assertThrows(TokenRefreshException.class, () -> service.getValidCredentials("con_1"));
+        assertEquals(Connection.STATUS_ACTIVE, connection.getStatus());
+        assertEquals(1, connection.getRefreshFailures());
+    }
+
+    @Test
+    void deletedOwnAppNeedsAReconnect() {
+        connection.setOauthClientId("oac_gone");
+        connection.setExpiresAt(System.currentTimeMillis() - 1);
+
+        assertThrows(ConnectionNeedsReauthException.class, () -> service.getValidCredentials("con_1"));
+        assertEquals(Connection.STATUS_NEEDS_REAUTH, connection.getStatus());
+        assertEquals(0, refreshCalls.get());
     }
 }

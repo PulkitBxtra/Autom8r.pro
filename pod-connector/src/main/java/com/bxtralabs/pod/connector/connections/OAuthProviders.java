@@ -7,15 +7,18 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
 
-// OAuth providers and their client credentials. A provider is only offered in the UI once its
-// client id and secret are configured (from the provider's developer console, e.g. GitHub ->
-// Settings -> Developer settings -> OAuth Apps, with callback URL <public-url>/oauth/callback).
-// Base URLs are configurable so tests can point at a local mock provider.
+// OAuth providers, and the server's own client credentials for each. Users can always sign in
+// with their own OAuth app (OAuthClient); the server's app is offered too once its client id and
+// secret are configured (from the provider's developer console, e.g. GitHub -> Settings ->
+// Developer settings, with callback URL <public-url>/oauth/callback). Base URLs are
+// configurable so tests can point at a local mock provider.
 @Component
 public class OAuthProviders {
 
+    // setupUrl: where a user creates their own OAuth app with this provider.
     public record Provider(String id, String displayName, String authorizeUrl, String tokenUrl, String scopes,
-                           String clientId, String clientSecret, Map<String, String> extraAuthorizeParams) {
+                           String clientId, String clientSecret, Map<String, String> extraAuthorizeParams,
+                           String setupUrl) {
 
         public boolean configured() {
             return clientId != null && !clientId.isBlank() && clientSecret != null && !clientSecret.isBlank();
@@ -23,17 +26,23 @@ public class OAuthProviders {
     }
 
     private final Map<String, Provider> providers = new LinkedHashMap<>();
+    private final String callbackUrl;
 
     public OAuthProviders(@Value("${connectors.github.oauth-base:https://github.com}") String githubOauthBase,
                           @Value("${connectors.github.oauth.client-id:}") String githubClientId,
                           @Value("${connectors.github.oauth.client-secret:}") String githubClientSecret,
                           @Value("${connectors.github.oauth.scopes:read:user repo}") String githubScopes,
                           @Value("${connectors.google.oauth.client-id:}") String googleClientId,
-                          @Value("${connectors.google.oauth.client-secret:}") String googleClientSecret) {
+                          @Value("${connectors.google.oauth.client-secret:}") String googleClientSecret,
+                          @Value("${app.public-url:http://localhost:8084}") String publicUrl) {
+        // Every provider sends the browser back here, for the server's app and users' own apps
+        // alike (the state says which sign-in it is). Must match what's registered exactly.
+        this.callbackUrl = publicUrl.replaceAll("/+$", "") + "/oauth/callback";
         register(new Provider("github", "GitHub",
                 githubOauthBase + "/login/oauth/authorize",
                 githubOauthBase + "/login/oauth/access_token",
-                githubScopes, githubClientId, githubClientSecret, Map.of()));
+                githubScopes, githubClientId, githubClientSecret, Map.of(),
+                "https://github.com/settings/developers"));
         // Declared so Gmail/Sheets light up once configured. access_type=offline + prompt=consent
         // make Google return a refresh token.
         register(new Provider("google", "Google",
@@ -41,7 +50,8 @@ public class OAuthProviders {
                 "https://oauth2.googleapis.com/token",
                 "openid email https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/spreadsheets",
                 googleClientId, googleClientSecret,
-                Map.of("access_type", "offline", "prompt", "consent")));
+                Map.of("access_type", "offline", "prompt", "consent"),
+                "https://console.cloud.google.com/apis/credentials"));
     }
 
     private void register(Provider provider) {
@@ -52,7 +62,12 @@ public class OAuthProviders {
         return Optional.ofNullable(id == null ? null : providers.get(id));
     }
 
+    // The server's own app for this provider is configured.
     public boolean isAvailable(String id) {
         return find(id).map(Provider::configured).orElse(false);
+    }
+
+    public String callbackUrl() {
+        return callbackUrl;
     }
 }

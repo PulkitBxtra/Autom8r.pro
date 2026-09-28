@@ -1,5 +1,5 @@
 import { connector } from "./client";
-import type { AppConnection, ConnectorInfo } from "@/lib/types";
+import type { AppConnection, ConnectorInfo, OAuthClient } from "@/lib/types";
 
 export function listConnectors(token: string) {
   return connector.get<ConnectorInfo[]>("/connectors", token);
@@ -26,12 +26,40 @@ export function deleteConnection(id: string, token: string) {
 }
 
 // Returns the provider's sign-in URL to open in a popup. connectionId: reconnect that one.
-export function startOAuth(appId: string, token: string, connectionId?: string) {
+// oauthClientId: sign in through that OAuth app of the user's; omitted = the server's app.
+export function startOAuth(
+  appId: string,
+  token: string,
+  options: { connectionId?: string; oauthClientId?: string | null } = {}
+) {
   return connector.post<{ authorizeUrl: string }>(
     `/oauth/${encodeURIComponent(appId)}/start`,
-    connectionId ? { connectionId } : {},
+    { connectionId: options.connectionId ?? null, oauthClientId: options.oauthClientId ?? null },
     token
   );
+}
+
+// The user's own OAuth apps. provider narrows to one (e.g. "github").
+export function listOAuthClients(token: string, provider?: string) {
+  const query = provider ? `?provider=${encodeURIComponent(provider)}` : "";
+  return connector.get<OAuthClient[]>(`/oauth-clients${query}`, token);
+}
+
+export function createOAuthClient(
+  input: { provider: string; name?: string; clientId: string; clientSecret: string },
+  token: string
+) {
+  return connector.post<OAuthClient>("/oauth-clients", input, token);
+}
+
+// Rename and/or replace the secret; an empty secret keeps the current one.
+export function updateOAuthClient(id: string, input: { name?: string; clientSecret?: string }, token: string) {
+  return connector.put<OAuthClient>(`/oauth-client/${id}`, input, token);
+}
+
+// 409 while connections still use it.
+export function deleteOAuthClient(id: string, token: string) {
+  return connector.delete<null>(`/oauth-client/${id}`, token);
 }
 
 // What /oauth-complete reports back to the page that opened the sign-in popup.

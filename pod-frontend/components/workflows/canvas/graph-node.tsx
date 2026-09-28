@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { MoreVertical, Trash2, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { AppLogo } from "@/components/ui/app-logo";
 import type { WorkflowNode } from "@/lib/workflow-graph";
 import { useCanvasActions } from "./canvas-actions-context";
 import { STEP_BORDER, StepStatusBadge, stepDidNotRun, useRunStep } from "@/components/workflows/run-status";
@@ -56,14 +57,18 @@ export function GraphNode({ id, data, selected }: NodeProps<WorkflowNode>) {
           (selected || isOpenInPanel) && "border-lemon"
         )}
       >
-        <div
-          className={cn(
-            "flex size-10 shrink-0 items-center justify-center rounded-xl",
-            empty ? "bg-white/5 text-text-faint" : "bg-lemon text-black"
-          )}
-        >
-          <Zap className="size-4.5" />
-        </div>
+        {data.app ? (
+          <AppLogo appId={data.app.id} name={data.app.name} className="size-10 rounded-xl" />
+        ) : (
+          <div
+            className={cn(
+              "flex size-10 shrink-0 items-center justify-center rounded-xl",
+              empty ? "bg-white/5 text-text-faint" : "bg-lemon text-black"
+            )}
+          >
+            <Zap className="size-4.5" />
+          </div>
+        )}
         <div className="min-w-0 flex-1">
           <p className="text-[10px] font-bold uppercase tracking-wide text-text-faint">
             {isTrigger ? "Trigger" : "Action"}

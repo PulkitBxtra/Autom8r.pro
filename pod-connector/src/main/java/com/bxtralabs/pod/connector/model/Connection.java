@@ -57,6 +57,9 @@ public class Connection {
     // Encrypted ("v1:..."), see CredentialCipher.
     @Column(columnDefinition = "text", nullable = false)
     private String credentials;
+    // OAuth connections signed in through the user's own OAuth app (OAuthClient id); null means
+    // the server's app. Refreshing must use the same app that issued the tokens.
+    private String oauthClientId;
     // Access token expiry for OAuth providers that issue expiring tokens. A plain column (not
     // inside credentials) so the refresh job can find expiring tokens without decrypting.
     private Long expiresAt;
@@ -135,6 +138,14 @@ public class Connection {
 
     public void setCredentials(String credentials) {
         this.credentials = credentials;
+    }
+
+    public String getOauthClientId() {
+        return oauthClientId;
+    }
+
+    public void setOauthClientId(String oauthClientId) {
+        this.oauthClientId = oauthClientId;
     }
 
     public Long getExpiresAt() {

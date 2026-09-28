@@ -48,7 +48,7 @@ class ConnectionServiceTest {
                             return "@" + creds.get("token").replace("ghp_", "");
                         }), "github"),
                 new Connector("app_gmail", "Gmail", "Email", null, "google")));
-        service = new ConnectionService(repo, registry, new OAuthProviders("https://github.com", "", "", "repo", "", ""), cipher);
+        service = new ConnectionService(repo, registry, new OAuthProviders("https://github.com", "", "", "repo", "", "", "http://localhost:8084"), cipher);
 
         long[] clock = {1000};
         when(repo.save(any(Connection.class))).thenAnswer(inv -> {
@@ -77,8 +77,11 @@ class ConnectionServiceTest {
         assertEquals("token", views.get(0).tokenFields().get(0).key());
         assertEquals("https://docs", views.get(0).docsUrl());
         assertNull(views.get(1).tokenFields(), "Gmail is OAuth-only");
-        assertFalse(views.get(0).oauthAvailable(), "GitHub OAuth not configured in this test");
+        assertTrue(views.get(0).oauthAvailable(), "users can always bring their own GitHub OAuth app");
+        assertFalse(views.get(0).platformOAuthAvailable(), "the server's GitHub app isn't configured in this test");
         assertEquals("GitHub", views.get(0).oauthProviderName());
+        assertEquals("http://localhost:8084/oauth/callback", views.get(0).callbackUrl());
+        assertEquals("https://github.com/settings/developers", views.get(0).oauthSetupUrl());
     }
 
     // ---------- create ----------
@@ -132,7 +135,7 @@ class ConnectionServiceTest {
 
     @Test
     void withoutAKeyNothingIsCheckedOrSaved() {
-        ConnectionService unconfigured = new ConnectionService(repo, registry, new OAuthProviders("https://github.com", "", "", "repo", "", ""), new CredentialCipher("", JSON));
+        ConnectionService unconfigured = new ConnectionService(repo, registry, new OAuthProviders("https://github.com", "", "", "repo", "", "", "http://localhost:8084"), new CredentialCipher("", JSON));
         assertThrows(ConnectionsNotConfiguredException.class,
                 () -> unconfigured.createWithToken("usr_1", "app_github", Map.of("token", "ghp_a")));
         assertNull(checked.get(), "fails before a provider round trip");

@@ -20,6 +20,9 @@ public class OAuthState {
     private String provider;
     // Set when this sign-in is reconnecting an existing connection.
     private String connectionId;
+    // The user's own OAuth app this sign-in uses (null: the server's). The code must be
+    // exchanged with the same app it was issued to.
+    private String oauthClientId;
     @Column(columnDefinition = "text", nullable = false)
     private String codeVerifier;
     @Column(nullable = false)
@@ -29,12 +32,13 @@ public class OAuthState {
     }
 
     public OAuthState(String id, String userId, String appId, String provider, String connectionId,
-                      String codeVerifier, Long createdAt) {
+                      String oauthClientId, String codeVerifier, Long createdAt) {
         this.id = id;
         this.userId = userId;
         this.appId = appId;
         this.provider = provider;
         this.connectionId = connectionId;
+        this.oauthClientId = oauthClientId;
         this.codeVerifier = codeVerifier;
         this.createdAt = createdAt;
     }
@@ -57,6 +61,10 @@ public class OAuthState {
 
     public String getConnectionId() {
         return connectionId;
+    }
+
+    public String getOauthClientId() {
+        return oauthClientId;
     }
 
     public String getCodeVerifier() {

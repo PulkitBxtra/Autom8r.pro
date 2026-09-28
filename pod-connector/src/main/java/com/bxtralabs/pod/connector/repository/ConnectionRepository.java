@@ -18,6 +18,9 @@ public interface ConnectionRepository extends JpaRepository<Connection, String> 
     // A step's connection picker: only the connections for that step's app.
     List<Connection> findByUserIdAndAppIdOrderByCreatedAtDesc(String userId, String appId);
 
+    // How many connections sign in through one of the user's own OAuth apps.
+    long countByOauthClientId(String oauthClientId);
+
     // SELECT ... FOR UPDATE: anyone about to refresh a connection's token takes this first, so
     // two refreshes of the same connection never overlap (with rotating refresh tokens the
     // second would use an already-invalidated refresh token and break the connection).

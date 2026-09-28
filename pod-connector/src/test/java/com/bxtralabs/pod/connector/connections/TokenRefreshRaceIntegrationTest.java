@@ -100,7 +100,7 @@ class TokenRefreshRaceIntegrationTest {
 
     // start -> the provider's authorize page (auto-approves) -> callback, as the browser would.
     private String signIn(String userId) throws Exception {
-        String authorizeUrl = oauth.start(userId, "app_github", null);
+        String authorizeUrl = oauth.start(userId, "app_github", null, null);
         HttpResponse<Void> r = http.send(HttpRequest.newBuilder(URI.create(authorizeUrl)).build(),
                 HttpResponse.BodyHandlers.discarding());
         URI callback = URI.create(r.headers().firstValue("Location").orElseThrow());

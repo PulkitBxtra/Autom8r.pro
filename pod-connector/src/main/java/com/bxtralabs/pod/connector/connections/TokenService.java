@@ -1,6 +1,7 @@
 package com.bxtralabs.pod.connector.connections;
 
 import com.bxtralabs.pod.connector.common.NotFoundException;
+import com.bxtralabs.pod.connector.connections.OAuthClientService.ClientCredentials;
 import com.bxtralabs.pod.connector.connections.OAuthProviders.Provider;
 import com.bxtralabs.pod.connector.connections.ProviderHttp.TokenResponse;
 import com.bxtralabs.pod.connector.model.Connection;
@@ -26,16 +27,18 @@ public class TokenService {
     private final ConnectionRepository repository;
     private final ConnectorRegistry registry;
     private final OAuthProviders providers;
+    private final OAuthClientService clients;
     private final CredentialCipher cipher;
     private final ProviderHttp http;
     private final long refreshMarginMs;
 
     public TokenService(ConnectionRepository repository, ConnectorRegistry registry, OAuthProviders providers,
-                        CredentialCipher cipher, ProviderHttp http,
+                        OAuthClientService clients, CredentialCipher cipher, ProviderHttp http,
                         @Value("${connections.refresh-margin-ms:60000}") long refreshMarginMs) {
         this.repository = repository;
         this.registry = registry;
         this.providers = providers;
+        this.clients = clients;
         this.cipher = cipher;
         this.http = http;
         this.refreshMarginMs = refreshMarginMs;
@@ -68,8 +71,20 @@ public class TokenService {
     // Refreshes a connection the caller already holds the row lock for (same transaction), and
     // returns the credentials to use. On a temporary failure it keeps the old token if that's
     // still valid, and backs off; on invalid_grant it marks the connection NEEDS_REAUTH.
+    // Uses the same OAuth app (the server's or the user's own) that issued the tokens.
     Map<String, String> refreshLocked(Connection c, Map<String, String> credentials, long now) {
         Provider provider = providerFor(c);
+        boolean ownApp = c.getOauthClientId() != null;
+        ClientCredentials client;
+        try {
+            client = clients.credentialsFor(provider, c.getOauthClientId());
+        } catch (IllegalStateException e) {
+            if (ownApp) {
+                markNeedsReauth(c, e.getMessage() + ". Reconnect it.");
+                throw new ConnectionNeedsReauthException(appName(c) + " needs to be reconnected");
+            }
+            throw new TokenRefreshException(e.getMessage());
+        }
         String refreshToken = credentials.get(REFRESH_TOKEN);
         if (refreshToken == null || refreshToken.isBlank()) {
             markNeedsReauth(c, "The provider didn't issue a refresh token, so the expired access token can't be renewed");
@@ -81,8 +96,8 @@ public class TokenService {
             Map<String, String> form = new LinkedHashMap<>();
             form.put("grant_type", "refresh_token");
             form.put("refresh_token", refreshToken);
-            form.put("client_id", provider.clientId());
-            form.put("client_secret", provider.clientSecret());
+            form.put("client_id", client.clientId());
+            form.put("client_secret", client.clientSecret());
             response = http.postForm(provider.displayName(), provider.tokenUrl(), form);
         } catch (ConnectionVerificationException networkError) {
             return temporaryFailure(c, credentials, networkError.getMessage(), now);
@@ -92,6 +107,14 @@ public class TokenService {
         if ("invalid_grant".equals(error)) {
             // Revoked by the user, or the refresh token expired. Retrying can't fix this.
             markNeedsReauth(c, provider.displayName() + " no longer accepts this connection (invalid_grant). Reconnect it.");
+            throw new ConnectionNeedsReauthException(appName(c) + " needs to be reconnected");
+        }
+        if (ownApp && OAuthService.isClientCredentialsError(error)) {
+            // The user deleted their OAuth app or rotated its secret without updating it here.
+            // Only they can fix that. (For the server's app it's an operator mistake that fixing
+            // the config resolves for everyone, so that stays a temporary failure below.)
+            markNeedsReauth(c, provider.displayName() + " rejected your OAuth app's client ID or secret ("
+                    + error + "). Update the app's secret, then reconnect.");
             throw new ConnectionNeedsReauthException(appName(c) + " needs to be reconnected");
         }
         Object access = response.body().get(ACCESS_TOKEN);
@@ -156,8 +179,7 @@ public class TokenService {
     private Provider providerFor(Connection c) {
         String providerId = registry.find(c.getAppId()).map(Connector::oauthProvider).orElse(null);
         return providers.find(providerId)
-                .filter(Provider::configured)
-                .orElseThrow(() -> new TokenRefreshException("OAuth isn't configured for " + appName(c)));
+                .orElseThrow(() -> new TokenRefreshException("OAuth isn't supported for " + appName(c)));
     }
 
     private String appName(Connection c) {

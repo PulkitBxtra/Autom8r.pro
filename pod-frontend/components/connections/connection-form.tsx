@@ -1,12 +1,14 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, ExternalLink, Eye, EyeOff, LogIn, Search } from "lucide-react";
-import { Dialog } from "@/components/ui/dialog";
+import Link from "next/link";
+import { ExternalLink, Eye, EyeOff, Search } from "lucide-react";
+import { AppLogo } from "@/components/ui/app-logo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { OAuthSection } from "@/components/connections/oauth-section";
 import { useAuth } from "@/lib/auth-context";
 import {
   createConnection,
@@ -19,56 +21,8 @@ import { ApiError } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
 import type { AppConnection, ConnectorInfo } from "@/lib/types";
 
-// "New connection": pick an app, then fill in its credentials. With `reconnect`
-// set it skips the picker and replaces that connection's credentials in place.
-export function ConnectionDialog({
-  open,
-  connectors,
-  reconnect,
-  onClose,
-  onSaved,
-}: {
-  open: boolean;
-  connectors: ConnectorInfo[];
-  reconnect?: AppConnection | null;
-  onClose: () => void;
-  onSaved: () => void;
-}) {
-  const reconnectApp = reconnect ? connectors.find((c) => c.appId === reconnect.appId) ?? null : null;
-  const [picked, setPicked] = useState<ConnectorInfo | null>(reconnectApp);
-  const app = reconnectApp ?? picked;
-
-  const title = reconnect
-    ? `Reconnect ${reconnect.appName}${reconnect.label ? ` · ${reconnect.label}` : ""}`
-    : app
-      ? `Connect ${app.name}`
-      : "New connection";
-
-  return (
-    <Dialog open={open} onClose={onClose} title={title} className="max-w-xl">
-      {app ? (
-        <CredentialsForm
-          // Fresh form state per app.
-          key={app.appId}
-          app={app}
-          reconnect={reconnect ?? null}
-          onBack={reconnect ? undefined : () => setPicked(null)}
-          onSaved={onSaved}
-        />
-      ) : (
-        <AppPicker connectors={connectors} onPick={setPicked} />
-      )}
-    </Dialog>
-  );
-}
-
-function AppPicker({
-  connectors,
-  onPick,
-}: {
-  connectors: ConnectorInfo[];
-  onPick: (app: ConnectorInfo) => void;
-}) {
+// Step 1 of a new connection: pick the app. Each app links to its own connect page.
+export function AppPicker({ connectors }: { connectors: ConnectorInfo[] }) {
   const [query, setQuery] = useState("");
   const filtered = connectors.filter((c) =>
     `${c.name} ${c.description}`.toLowerCase().includes(query.toLowerCase())
@@ -86,21 +40,14 @@ function AppPicker({
           className="pl-9"
         />
       </div>
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {filtered.map((c) => {
-          // An app is connectable if it has a token form or configured OAuth.
+          // An app is connectable if it has a token form or supports OAuth (with the server's
+          // app or the user's own).
           const available = !!c.tokenFields || c.oauthAvailable;
-          return (
-            <button
-              key={c.appId}
-              disabled={!available}
-              onClick={() => onPick(c)}
-              className={cn(
-                "flex items-start gap-3 rounded-xl border border-border-strong bg-surface-sunken p-3 text-left transition-colors",
-                available ? "hover:border-lemon/50 hover:bg-white/5" : "cursor-not-allowed opacity-50"
-              )}
-            >
-              <AppIcon name={c.name} />
+          const body = (
+            <>
+              <AppLogo appId={c.appId} name={c.name} className="size-10" />
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <span className="truncate text-sm font-semibold">{c.name}</span>
@@ -108,7 +55,21 @@ function AppPicker({
                 </div>
                 <p className="truncate text-xs text-text-muted">{c.description}</p>
               </div>
-            </button>
+            </>
+          );
+          const card = "flex items-center gap-3 rounded-xl border border-border-strong bg-surface-raised p-4 text-left transition-colors";
+          return available ? (
+            <Link
+              key={c.appId}
+              href={`/connections/new/${encodeURIComponent(c.appId)}`}
+              className={cn(card, "hover:border-lemon/50 hover:bg-white/5")}
+            >
+              {body}
+            </Link>
+          ) : (
+            <div key={c.appId} aria-disabled className={cn(card, "cursor-not-allowed opacity-50")}>
+              {body}
+            </div>
           );
         })}
         {filtered.length === 0 && (
@@ -119,15 +80,15 @@ function AppPicker({
   );
 }
 
-function CredentialsForm({
+// Step 2: sign in with OAuth and/or enter the app's token. With `reconnect` set it replaces
+// that connection's credentials in place (same id).
+export function CredentialsForm({
   app,
   reconnect,
-  onBack,
   onSaved,
 }: {
   app: ConnectorInfo;
   reconnect: AppConnection | null;
-  onBack?: () => void;
   onSaved: () => void;
 }) {
   const { token } = useAuth();
@@ -135,15 +96,16 @@ function CredentialsForm({
   const [revealed, setRevealed] = useState<Record<string, boolean>>({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Shown under the OAuth button rather than at the bottom of the token form.
+  const [oauthError, setOAuthError] = useState<string | null>(null);
 
   const fields = app.tokenFields ?? [];
   const missing = fields.some((f) => f.required && !values[f.key]?.trim());
-  const providerName = app.oauthProviderName ?? "OAuth";
   const oauth = useOAuthPopup({
     app,
     connectionId: reconnect?.id,
     onSuccess: onSaved,
-    onError: setError,
+    onError: setOAuthError,
   });
 
   async function handleSubmit(e: React.FormEvent) {
@@ -167,30 +129,20 @@ function CredentialsForm({
 
   return (
     <form onSubmit={handleSubmit} autoComplete="off">
-      <div className="mb-5 flex items-center gap-3">
-        {onBack && (
-          <button
-            type="button"
-            onClick={onBack}
-            aria-label="Back to apps"
-            className="flex size-8 items-center justify-center rounded-full text-text-muted transition-colors hover:bg-white/10 hover:text-text"
-          >
-            <ArrowLeft className="size-4" />
-          </button>
-        )}
-        <AppIcon name={app.name} />
-        <p className="text-sm text-text-muted">{app.description}</p>
+      <div className="mb-6 flex items-center gap-3">
+        <AppLogo appId={app.appId} name={app.name} className="size-11" />
+        <div className="min-w-0">
+          <p className="text-sm font-semibold">{app.name}</p>
+          <p className="text-sm text-text-muted">{app.description}</p>
+        </div>
       </div>
 
       {app.oauthAvailable && (
         <div className="mb-5">
-          <Button type="button" className="w-full" loading={oauth.waiting} onClick={oauth.open}>
-            {!oauth.waiting && <LogIn className="size-4" />}
-            {oauth.waiting ? `Waiting for ${providerName}…` : `Connect with ${providerName}`}
-          </Button>
-          {oauth.waiting && (
-            <p className="mt-2 text-center text-xs text-text-muted">
-              Finish signing in in the pop-up window.
+          <OAuthSection app={app} reconnect={reconnect} waiting={oauth.waiting} connect={oauth.open} />
+          {oauthError && (
+            <p role="alert" className="mt-3 rounded-lg border border-red-500/30 bg-red-500/5 px-3 py-2.5 text-sm text-red-300">
+              {oauthError}
             </p>
           )}
           {fields.length > 0 && (
@@ -204,17 +156,7 @@ function CredentialsForm({
       )}
 
       {fields.length === 0 ? (
-        app.oauthAvailable ? (
-          error && (
-            <p role="alert" className="rounded-lg border border-red-500/30 bg-red-500/5 px-3 py-2.5 text-sm text-red-300">
-              {error}
-            </p>
-          )
-        ) : (
-          <p className="text-sm text-text-muted">
-            {app.name} connects by signing in with {providerName}, which isn&apos;t set up on this server yet.
-          </p>
-        )
+        !app.oauthAvailable && <p className="text-sm text-text-muted">{app.name} can&apos;t be connected yet.</p>
       ) : (
         <div className="space-y-4">
           {fields.map((f, i) => (
@@ -224,7 +166,7 @@ function CredentialsForm({
                 <Input
                   id={`cred-${f.key}`}
                   name={f.key}
-                  autoFocus={i === 0}
+                  autoFocus={i === 0 && !app.oauthAvailable}
                   // new-password stops browsers from offering to save or autofill tokens.
                   type={f.secret && !revealed[f.key] ? "password" : "text"}
                   autoComplete={f.secret ? "new-password" : "off"}
@@ -336,7 +278,9 @@ function useOAuthPopup({
     };
   }, [waiting, app.appId]);
 
-  async function open() {
+  // prepare: returns the user's OAuth app to sign in with (null = the server's), saving a new
+  // one first if needed. Runs after the pop-up is open so blockers still allow it.
+  async function open(prepare: () => Promise<string | null>) {
     if (!token) return;
     handlers.current.onError(null);
     // Open synchronously in the click so pop-up blockers allow it; point it at the provider once
@@ -349,7 +293,8 @@ function useOAuthPopup({
     popupRef.current = popup;
     setWaiting(true);
     try {
-      const { authorizeUrl } = await startOAuth(app.appId, token, connectionId);
+      const oauthClientId = await prepare();
+      const { authorizeUrl } = await startOAuth(app.appId, token, { connectionId, oauthClientId });
       popup.location.href = authorizeUrl;
     } catch (err) {
       popup.close();
@@ -359,17 +304,4 @@ function useOAuthPopup({
   }
 
   return { waiting, open };
-}
-
-export function AppIcon({ name, className }: { name: string; className?: string }) {
-  return (
-    <div
-      className={cn(
-        "flex size-9 shrink-0 items-center justify-center rounded-lg bg-lemon text-sm font-black text-black",
-        className
-      )}
-    >
-      {name[0]}
-    </div>
-  );
 }

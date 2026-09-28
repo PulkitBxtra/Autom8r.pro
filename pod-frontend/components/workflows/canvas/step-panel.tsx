@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { ChevronRight, Search, X } from "lucide-react";
 import { cn, formatDuration } from "@/lib/utils";
+import { AppLogo } from "@/components/ui/app-logo";
 import { APP_CATALOG } from "@/lib/mock-catalog";
 import { Input } from "@/components/ui/input";
 import { StepStatusBadge } from "@/components/workflows/run-status";
@@ -66,14 +67,13 @@ export function StepPanel({
     <div className="flex h-full w-[400px] shrink-0 flex-col border-l border-border-strong bg-surface-raised">
       <div className="flex items-center justify-between gap-3 border-b border-border px-5 py-4">
         <div className="flex min-w-0 items-center gap-3">
-          <div
-            className={cn(
-              "flex size-9 shrink-0 items-center justify-center rounded-lg text-xs font-black",
-              node.data.app ? "bg-lemon text-black" : "bg-white/5 text-text-faint"
-            )}
-          >
-            {node.data.app?.name[0] ?? "?"}
-          </div>
+          {node.data.app ? (
+            <AppLogo appId={node.data.app.id} name={node.data.app.name} />
+          ) : (
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-white/5 text-xs font-black text-text-faint">
+              ?
+            </div>
+          )}
           <p className="truncate text-sm font-bold">
             {stepNumber}.{" "}
             {node.data.item?.name || (isTrigger ? "Choose a trigger" : "Choose an action")}
@@ -132,9 +132,7 @@ export function StepPanel({
                         onClick={() => handlePickApp(app)}
                         className="flex items-center gap-2.5 rounded-xl border border-border-strong bg-surface-sunken px-3 py-2.5 text-left transition-colors hover:border-lemon/50 hover:bg-white/5"
                       >
-                        <div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-lemon text-[11px] font-black text-black">
-                          {app.name[0]}
-                        </div>
+                        <AppLogo appId={app.id} name={app.name} className="size-7 rounded-md" />
                         <span className="truncate text-sm font-semibold">
                           {app.name}
                         </span>
@@ -145,9 +143,7 @@ export function StepPanel({
               ) : (
                 <div className="flex items-center justify-between gap-3 rounded-xl border border-border-strong bg-surface-sunken px-4 py-3">
                   <div className="flex min-w-0 items-center gap-3">
-                    <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-lemon text-xs font-black text-black">
-                      {node.data.app?.name[0] ?? "?"}
-                    </div>
+                    <AppLogo appId={node.data.app?.id} name={node.data.app?.name ?? "?"} className="size-8" />
                     <span className="truncate text-sm font-semibold">
                       {node.data.app?.name}
                     </span>

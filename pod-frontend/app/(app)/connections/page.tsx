@@ -1,29 +1,31 @@
 "use client";
 
 import { useState } from "react";
-import { AlertTriangle, Plug, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { AlertTriangle, KeyRound, Plug, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { Topbar } from "@/components/layout/topbar";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { EmptyState } from "@/components/ui/empty-state";
 import { FullPageSpinner } from "@/components/ui/spinner";
-import { AppIcon, ConnectionDialog } from "@/components/connections/connection-dialog";
+import { AppLogo } from "@/components/ui/app-logo";
 import { useConnections } from "@/hooks/use-connections";
 import { useAuth } from "@/lib/auth-context";
-import { deleteConnection } from "@/lib/api/connections";
+import { deleteConnection, deleteOAuthClient, updateOAuthClient } from "@/lib/api/connections";
 import { ApiError } from "@/lib/api/client";
 import { formatRelativeTime } from "@/lib/utils";
-import type { AppConnection } from "@/lib/types";
+import type { AppConnection, OAuthClient } from "@/lib/types";
 
 export default function ConnectionsPage() {
   const { token } = useAuth();
-  const { connections, connectors, loading, error, refresh } = useConnections();
-  // null = closed; "new" = new connection; otherwise reconnecting that connection.
-  const [dialog, setDialog] = useState<"new" | AppConnection | null>(null);
+  const { connections, oauthClients, loading, error, refresh } = useConnections();
   const [deleting, setDeleting] = useState<AppConnection | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [editingClient, setEditingClient] = useState<OAuthClient | null>(null);
+  const clientNames = new Map(oauthClients.map((c) => [c.id, c.name]));
 
   async function confirmDelete() {
     if (!token || !deleting) return;
@@ -41,7 +43,7 @@ export default function ConnectionsPage() {
   }
 
   const newButton = (
-    <Button onClick={() => setDialog("new")} disabled={!!error}>
+    <Button href="/connections/new">
       <Plus className="size-4" />
       New connection
     </Button>
@@ -87,7 +89,7 @@ export default function ConnectionsPage() {
                     <ConnectionRow
                       key={c.id}
                       connection={c}
-                      onReconnect={() => setDialog(c)}
+                      oauthClientName={c.oauthClientId ? clientNames.get(c.oauthClientId) ?? "your OAuth app" : null}
                       onDelete={() => {
                         setDeleteError(null);
                         setDeleting(c);
@@ -96,21 +98,32 @@ export default function ConnectionsPage() {
                   ))}
                 </div>
               )}
+
+              {oauthClients.length > 0 && (
+                <section className="mt-10">
+                  <h2 className="text-sm font-semibold">Your OAuth apps</h2>
+                  <p className="mb-3 mt-1 text-xs text-text-muted">
+                    Apps you registered with a provider and sign in through instead of Autom8r&apos;s.
+                  </p>
+                  <div className="space-y-2">
+                    {oauthClients.map((c) => (
+                      <OAuthClientRow key={c.id} client={c} onEdit={() => setEditingClient(c)} />
+                    ))}
+                  </div>
+                </section>
+              )}
             </>
           )}
         </div>
       </div>
 
-      {dialog && (
-        <ConnectionDialog
-          // Remount per target so the form starts clean each time.
-          key={dialog === "new" ? "new" : dialog.id}
-          open
-          connectors={connectors}
-          reconnect={dialog === "new" ? null : dialog}
-          onClose={() => setDialog(null)}
-          onSaved={async () => {
-            setDialog(null);
+      {editingClient && (
+        <OAuthClientDialog
+          key={editingClient.id}
+          client={editingClient}
+          onClose={() => setEditingClient(null)}
+          onChanged={async () => {
+            setEditingClient(null);
             await refresh();
           }}
         />
@@ -145,17 +158,17 @@ export default function ConnectionsPage() {
 
 function ConnectionRow({
   connection: c,
-  onReconnect,
+  oauthClientName,
   onDelete,
 }: {
   connection: AppConnection;
-  onReconnect: () => void;
+  oauthClientName: string | null;
   onDelete: () => void;
 }) {
   const needsReauth = c.status === "NEEDS_REAUTH";
   return (
     <div className="flex items-center gap-4 rounded-xl border border-border bg-surface-raised px-4 py-3">
-      <AppIcon name={c.appName} />
+      <AppLogo appId={c.appId} name={c.appName} />
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-semibold">
           {c.appName}
@@ -165,7 +178,9 @@ function ConnectionRow({
           <p className="truncate text-xs text-red-400">{c.lastError}</p>
         ) : (
           <p className="text-xs text-text-faint">
-            {c.authType === "OAUTH" ? "Signed in with OAuth" : "Token"}
+            {c.authType === "OAUTH"
+              ? `Signed in with OAuth${oauthClientName ? ` via ${oauthClientName}` : ""}`
+              : "Token"}
             {c.createdAt != null && <> · added {formatRelativeTime(c.createdAt)}</>}
           </p>
         )}
@@ -174,7 +189,7 @@ function ConnectionRow({
         {needsReauth ? "Needs reconnect" : "Connected"}
       </Badge>
       <div className="flex shrink-0 items-center gap-1">
-        <Button variant={needsReauth ? "outline" : "ghost"} size="sm" onClick={onReconnect}>
+        <Button variant={needsReauth ? "outline" : "ghost"} size="sm" href={`/connections/${c.id}/reconnect`}>
           <RefreshCw className="size-3.5" />
           Reconnect
         </Button>
@@ -183,5 +198,132 @@ function ConnectionRow({
         </Button>
       </div>
     </div>
+  );
+}
+
+function OAuthClientRow({ client: c, onEdit }: { client: OAuthClient; onEdit: () => void }) {
+  return (
+    <div className="flex items-center gap-4 rounded-xl border border-border bg-surface-raised px-4 py-3">
+      <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-white/5 text-text-muted">
+        <KeyRound className="size-4" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-semibold">
+          {c.name}
+          <span className="font-normal text-text-muted"> · {c.providerName}</span>
+        </p>
+        <p className="truncate text-xs text-text-faint">
+          <span className="font-mono">{c.clientId}</span> · used by {c.connectionCount} connection
+          {c.connectionCount === 1 ? "" : "s"}
+        </p>
+      </div>
+      <Button variant="ghost" size="sm" onClick={onEdit}>
+        Manage
+      </Button>
+    </div>
+  );
+}
+
+// Rename, replace the secret (after rotating it with the provider), or delete an OAuth app.
+function OAuthClientDialog({
+  client,
+  onClose,
+  onChanged,
+}: {
+  client: OAuthClient;
+  onClose: () => void;
+  onChanged: () => void;
+}) {
+  const { token } = useAuth();
+  const [name, setName] = useState(client.name);
+  const [secret, setSecret] = useState("");
+  const [busy, setBusy] = useState<"save" | "delete" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const inUse = client.connectionCount > 0;
+
+  async function run(kind: "save" | "delete", action: () => Promise<unknown>) {
+    setBusy(kind);
+    setError(null);
+    try {
+      await action();
+      onChanged();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Something went wrong");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <Dialog open onClose={onClose} title={`${client.providerName} OAuth app`}>
+      <form
+        autoComplete="off"
+        className="space-y-4"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (token) run("save", () => updateOAuthClient(client.id, { name, clientSecret: secret }, token));
+        }}
+      >
+        <div>
+          <Label htmlFor="client-name">Name</Label>
+          <Input id="client-name" value={name} onChange={(e) => setName(e.target.value)} />
+        </div>
+        <div>
+          <Label htmlFor="client-id">Client ID</Label>
+          <Input id="client-id" readOnly value={client.clientId} className="font-mono text-text-muted" />
+        </div>
+        <div>
+          <Label htmlFor="client-secret">New client secret</Label>
+          <Input
+            id="client-secret"
+            type="password"
+            autoComplete="new-password"
+            spellCheck={false}
+            placeholder="Leave empty to keep the current one"
+            value={secret}
+            onChange={(e) => setSecret(e.target.value)}
+            className="font-mono"
+          />
+          <p className="mt-1.5 text-xs text-text-muted">
+            After rotating the secret with {client.providerName}, paste the new one here. Connections that
+            stopped working because of it need a reconnect afterwards.
+          </p>
+        </div>
+        {error && (
+          <p role="alert" className="rounded-lg border border-red-500/30 bg-red-500/5 px-3 py-2.5 text-sm text-red-300">
+            {error}
+          </p>
+        )}
+        <div className="flex items-center justify-between gap-2 pt-1">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            disabled={inUse || busy !== null}
+            loading={busy === "delete"}
+            title={inUse ? "Delete or reconnect the connections using it first" : undefined}
+            onClick={() => token && run("delete", () => deleteOAuthClient(client.id, token))}
+            className="text-red-400 hover:text-red-300"
+          >
+            {busy !== "delete" && <Trash2 className="size-3.5" />}
+            Delete
+          </Button>
+          <div className="flex gap-2">
+            <Button type="button" variant="ghost" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button type="submit" loading={busy === "save"} disabled={!name.trim() || busy !== null}>
+              Save
+            </Button>
+          </div>
+        </div>
+        {inUse && (
+          <p className="text-xs text-text-faint">
+            Used by {client.connectionCount} connection{client.connectionCount === 1 ? "" : "s"}, so it can&apos;t be
+            deleted.
+          </p>
+        )}
+      </form>
+    </Dialog>
   );
 }

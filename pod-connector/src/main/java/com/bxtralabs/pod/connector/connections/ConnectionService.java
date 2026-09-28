@@ -30,26 +30,37 @@ public class ConnectionService {
     }
 
     // What the UI gets for a connection.
+    // oauthClientId: the user's own OAuth app this connection signed in through (null: the server's).
     public record ConnectionView(String id, String appId, String appName, String label, String authType,
-                                 String status, String lastError, Long createdAt, Long updatedAt, Long lastUsedAt) {
+                                 String status, String lastError, String oauthClientId,
+                                 Long createdAt, Long updatedAt, Long lastUsedAt) {
     }
 
-    // What the UI needs to render "New connection" for an app. oauthAvailable: the app supports
-    // OAuth and its provider's client id/secret are configured on this server.
-    // oauthProviderName: for the "Connect with GitHub" button.
+    // What the UI needs to render "New connection" for an app.
+    //  oauthAvailable: the app supports OAuth, so the user can sign in with their own OAuth app.
+    //  platformOAuthAvailable: the server's own OAuth app for it is configured too.
+    //  oauthProviderName: for the "Connect with GitHub" button.
+    //  oauthSetupUrl / callbackUrl: where to create an OAuth app, and the callback URL to register in it.
     public record ConnectorView(String appId, String name, String description, List<CredentialField> tokenFields,
                                 String docsUrl, String oauthProvider, String oauthProviderName,
-                                boolean oauthAvailable) {
+                                boolean oauthAvailable, boolean platformOAuthAvailable,
+                                String oauthSetupUrl, String callbackUrl) {
     }
 
     public List<ConnectorView> connectors() {
-        return registry.all().stream().map(c -> new ConnectorView(
-                c.appId(), c.name(), c.description(),
-                c.token() == null ? null : c.token().fields(),
-                c.token() == null ? null : c.token().docsUrl(),
-                c.oauthProvider(),
-                oauthProviders.find(c.oauthProvider()).map(OAuthProviders.Provider::displayName).orElse(null),
-                oauthProviders.isAvailable(c.oauthProvider()))).toList();
+        return registry.all().stream().map(c -> {
+            OAuthProviders.Provider provider = oauthProviders.find(c.oauthProvider()).orElse(null);
+            return new ConnectorView(
+                    c.appId(), c.name(), c.description(),
+                    c.token() == null ? null : c.token().fields(),
+                    c.token() == null ? null : c.token().docsUrl(),
+                    c.oauthProvider(),
+                    provider == null ? null : provider.displayName(),
+                    provider != null,
+                    provider != null && provider.configured(),
+                    provider == null ? null : provider.setupUrl(),
+                    provider == null ? null : oauthProviders.callbackUrl());
+        }).toList();
     }
 
     public List<ConnectionView> list(String userId, String appId) {
@@ -89,6 +100,7 @@ public class ConnectionService {
         connection.setStatus(Connection.STATUS_ACTIVE);
         connection.setLastError(null);
         connection.setScopes(null);
+        connection.setOauthClientId(null);
         connection.setExpiresAt(null);
         connection.setRefreshFailures(0);
         connection.setNextRefreshAt(null);
@@ -96,8 +108,9 @@ public class ConnectionService {
     }
 
     // Saves a new OAuth connection, or refreshes an existing one when reconnecting (same id).
-    public ConnectionView saveOAuth(String userId, String appId, String existingConnectionId, String label,
-                                    Map<String, String> tokens, String scopes, Long expiresAt) {
+    // oauthClientId: the user's own OAuth app that issued these tokens (null: the server's).
+    public ConnectionView saveOAuth(String userId, String appId, String existingConnectionId, String oauthClientId,
+                                    String label, Map<String, String> tokens, String scopes, Long expiresAt) {
         requireConfigured();
         Connection connection = existingConnectionId == null ? new Connection() : owned(userId, existingConnectionId);
         connection.setUserId(userId);
@@ -107,6 +120,7 @@ public class ConnectionService {
         connection.setLabel(label);
         connection.setCredentials(cipher.encrypt(tokens));
         connection.setScopes(scopes);
+        connection.setOauthClientId(oauthClientId);
         connection.setExpiresAt(expiresAt);
         connection.setLastError(null);
         connection.setRefreshFailures(0);
@@ -164,6 +178,6 @@ public class ConnectionService {
     private ConnectionView view(Connection c) {
         String appName = registry.find(c.getAppId()).map(Connector::name).orElse(c.getAppId());
         return new ConnectionView(c.getId(), c.getAppId(), appName, c.getLabel(), c.getAuthType(), c.getStatus(),
-                c.getLastError(), c.getCreatedAt(), c.getUpdatedAt(), c.getLastUsedAt());
+                c.getLastError(), c.getOauthClientId(), c.getCreatedAt(), c.getUpdatedAt(), c.getLastUsedAt());
     }
 }

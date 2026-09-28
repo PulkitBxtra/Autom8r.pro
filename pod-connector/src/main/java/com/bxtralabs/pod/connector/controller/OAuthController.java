@@ -33,7 +33,8 @@ public class OAuthController {
                                      @PathVariable String appId,
                                      @RequestBody(required = false) StartRequest request) {
         String userId = userAuth.requireUserId(authorizationHeader);
-        String url = oauthService.start(userId, appId, request == null ? null : request.connectionId());
+        String url = oauthService.start(userId, appId, request == null ? null : request.connectionId(),
+                request == null ? null : request.oauthClientId());
         return Map.of("authorizeUrl", url);
     }
 
@@ -62,7 +63,9 @@ public class OAuthController {
         return new ResponseEntity<>(headers, HttpStatus.FOUND);
     }
 
-    public record StartRequest(String connectionId) {}
+    // connectionId: reconnect that connection. oauthClientId: sign in through that OAuth app of
+    // the user's instead of the server's.
+    public record StartRequest(String connectionId, String oauthClientId) {}
 
     private static String enc(String value) {
         return URLEncoder.encode(value, StandardCharsets.UTF_8);
