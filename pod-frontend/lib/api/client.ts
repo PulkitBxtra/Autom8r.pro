@@ -71,6 +71,12 @@ export const backend = {
       body: body ? JSON.stringify(body) : undefined,
       token,
     }),
+  put: <T>(path: string, body?: unknown, token?: string | null) =>
+    request<T>("backend", path, {
+      method: "PUT",
+      body: body ? JSON.stringify(body) : undefined,
+      token,
+    }),
 };
 
 export const webhooks = {

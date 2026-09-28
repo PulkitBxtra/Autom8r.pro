@@ -1,5 +1,6 @@
 package com.bxtralabs.pod.backend.service;
 
+import com.bxtralabs.pod.backend.common.ConflictException;
 import com.bxtralabs.pod.backend.common.NotFoundException;
 import com.bxtralabs.pod.backend.model.ConnectionView;
 import com.bxtralabs.pod.backend.model.Workflow;
@@ -94,7 +95,7 @@ class WorkflowServiceTest {
         when(workflowVersionRepository.findFirstByWorkflowIdOrderByVersionDesc("wfl_1"))
                 .thenReturn(Optional.of(new WorkflowVersion("wfl_1", 3, VALID)));
 
-        Workflow w = workflowService.update("wfl_1", "usr_1", "Renamed", VALID);
+        Workflow w = workflowService.update("wfl_1", "usr_1", "Renamed", VALID, "wfv_3");
 
         assertEquals("wfv_4", w.getCurrentVersionId());
         assertEquals("Renamed", w.getName());
@@ -105,7 +106,7 @@ class WorkflowServiceTest {
         when(workflowRepository.findById("wfl_1"))
                 .thenReturn(Optional.of(new Workflow("wfl_1", "Theirs", "trg_item", "usr_other", null)));
 
-        assertThrows(NotFoundException.class, () -> workflowService.update("wfl_1", "usr_1", "Mine now", VALID));
+        assertThrows(NotFoundException.class, () -> workflowService.update("wfl_1", "usr_1", "Mine now", VALID, null));
         verify(workflowVersionRepository, never()).saveAndFlush(any());
     }
 
@@ -179,7 +180,20 @@ class WorkflowServiceTest {
         when(connectionViewRepository.findAllById(List.of("con_gone"))).thenReturn(List.of());
 
         assertThrows(IllegalArgumentException.class,
-                () -> workflowService.update("wfl_1", "usr_1", "Flow", withConnection("app_github", "con_gone")));
+                () -> workflowService.update("wfl_1", "usr_1", "Flow", withConnection("app_github", "con_gone"), null));
         verify(workflowVersionRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void savingOverANewerVersionIsRefused() {
+        Workflow existing = new Workflow("wfl_1", "Flow", "trg_item", "usr_1", null);
+        existing.setCurrentVersionId("wfv_4");
+        when(workflowRepository.findById("wfl_1")).thenReturn(Optional.of(existing));
+
+        Exception e = assertThrows(ConflictException.class,
+                () -> workflowService.update("wfl_1", "usr_1", "Flow", VALID, "wfv_3"));
+        assertTrue(e.getMessage().contains("changed since you opened it"), e.getMessage());
+        verify(workflowVersionRepository, never()).saveAndFlush(any());
+        assertEquals("wfv_4", existing.getCurrentVersionId());
     }
 }

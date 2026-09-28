@@ -1,5 +1,6 @@
 package com.bxtralabs.pod.backend.service;
 
+import com.bxtralabs.pod.backend.common.ConflictException;
 import com.bxtralabs.pod.backend.common.NotFoundException;
 import com.bxtralabs.pod.backend.model.ConnectionView;
 import com.bxtralabs.pod.backend.model.Workflow;
@@ -73,10 +74,15 @@ public class WorkflowService {
     }
 
     // Every save is a new immutable version; runs already in flight keep the version they started on.
+    // baseVersionId: the version the editor started from. If someone saved since, refuse rather than
+    // silently replacing their change. Null skips the check.
     @Transactional
-    public Workflow update(String id, String userId, String name, WorkflowGraph graph) {
+    public Workflow update(String id, String userId, String name, WorkflowGraph graph, String baseVersionId) {
         graphValidator.validate(graph);
         Workflow workflow = getForUser(id, userId);
+        if (baseVersionId != null && !baseVersionId.equals(workflow.getCurrentVersionId())) {
+            throw new ConflictException("This workflow was changed since you opened it. Reload to see the latest version.");
+        }
         checkConnections(userId, graph);
 
         workflow.setName(name);

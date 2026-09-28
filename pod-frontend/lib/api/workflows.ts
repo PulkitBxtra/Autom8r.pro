@@ -20,6 +20,16 @@ export function createWorkflow(input: CreateWorkflowInput, token: string) {
   return backend.post<Workflow>("/workflows", input, token);
 }
 
+// Saves a new version. baseVersionId is the version the edit started from: if someone saved
+// since, pod-backend answers 409 instead of overwriting their change.
+export function updateWorkflow(
+  id: string,
+  input: CreateWorkflowInput & { baseVersionId: string | null },
+  token: string
+) {
+  return backend.put<Workflow>(`/workflow/${id}`, input, token);
+}
+
 export function triggerWorkflow(workflowId: string, payload: unknown = {}) {
   return webhooks.post<string>(`/trigger/${workflowId}`, payload);
 }

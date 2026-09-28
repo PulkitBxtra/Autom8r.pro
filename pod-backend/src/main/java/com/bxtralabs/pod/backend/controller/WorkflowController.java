@@ -56,7 +56,7 @@ public class WorkflowController {
                                            @PathVariable String id,
                                            @Valid @RequestBody SaveWorkflowRequest request) {
         String userId = authService.requireUserId(authorizationHeader);
-        return toResponse(workflowService.update(id, userId, request.name(), request.graph()));
+        return toResponse(workflowService.update(id, userId, request.name(), request.graph(), request.baseVersionId()));
     }
 
     private WorkflowResponse toResponse(Workflow workflow) {
@@ -75,7 +75,9 @@ public class WorkflowController {
 
     public record SaveWorkflowRequest(
             @NotBlank(message = "name is required") String name,
-            @NotNull(message = "graph is required") WorkflowGraph graph
+            @NotNull(message = "graph is required") WorkflowGraph graph,
+            // Updates only: the version being edited (see WorkflowService.update).
+            String baseVersionId
     ) {}
 
     // graph/version are null for workflows saved before versioning; those still have the legacy actions list.

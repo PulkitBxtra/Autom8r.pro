@@ -129,6 +129,16 @@ export function upstreamSources(
     }));
 }
 
+// Everything a save would store, for telling whether the editor has unsaved changes.
+export function graphSnapshot(nodes: WorkflowNode[], edges: WorkflowEdge[]) {
+  return JSON.stringify({
+    nodes: nodes
+      .map((n) => [n.id, n.data.app?.id, n.data.item?.id, n.data.parameters ?? {}, n.data.connectionId ?? null, n.position.x, n.position.y])
+      .sort(),
+    edges: edges.map((e) => `${e.source}>${e.target}`).sort(),
+  });
+}
+
 function isConfigured(node: WorkflowNode) {
   return !!node.data.app && !!node.data.item;
 }

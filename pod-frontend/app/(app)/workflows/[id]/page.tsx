@@ -3,7 +3,7 @@
 import { use, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useNodesState, useEdgesState } from "@xyflow/react";
-import { ArrowLeft, History, Play, X } from "lucide-react";
+import { ArrowLeft, History, Pencil, Play, X } from "lucide-react";
 import { Topbar } from "@/components/layout/topbar";
 import { Button } from "@/components/ui/button";
 import { FullPageSpinner } from "@/components/ui/spinner";
@@ -188,15 +188,16 @@ export default function WorkflowDetailPage({
                   {runError && <p className="mt-2 text-xs text-red-400">{runError}</p>}
                 </div>
 
-                <Button
-                  onClick={handleRun}
-                  loading={running}
-                  variant="secondary"
-                  className="pointer-events-auto"
-                >
-                  <Play className="size-4" />
-                  Run now
-                </Button>
+                <div className="pointer-events-auto flex items-center gap-2">
+                  <Button href={`/workflows/${workflow.id}/edit`} variant="outline">
+                    <Pencil className="size-4" />
+                    Edit
+                  </Button>
+                  <Button onClick={handleRun} loading={running} variant="secondary">
+                    <Play className="size-4" />
+                    Run now
+                  </Button>
+                </div>
               </div>
 
               <RunStepsContext.Provider value={runSteps}>

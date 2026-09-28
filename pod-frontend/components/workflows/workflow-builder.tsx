@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useNodesState, useEdgesState } from "@xyflow/react";
 import { Button } from "@/components/ui/button";
@@ -8,10 +8,14 @@ import { Input } from "@/components/ui/input";
 import { WorkflowCanvas } from "@/components/workflows/canvas/workflow-canvas";
 import { StepPanel, type StepTab } from "@/components/workflows/canvas/step-panel";
 import { useAuth } from "@/lib/auth-context";
-import { createWorkflow } from "@/lib/api/workflows";
+import { createWorkflow, updateWorkflow } from "@/lib/api/workflows";
 import { ApiError } from "@/lib/api/client";
+import { useCatalog } from "@/lib/catalog-context";
+import type { Workflow } from "@/lib/types";
 import {
+  buildGraphFromWorkflow,
   buildInitialGraph,
+  graphSnapshot,
   orderSteps,
   toWorkflowGraph,
   TRIGGER_NODE_ID,
@@ -19,12 +23,16 @@ import {
   type GraphNodeData,
 } from "@/lib/workflow-graph";
 
-export function WorkflowBuilder() {
+// Creates a workflow, or with `existing`, edits one: saving then stores a new version of it.
+export function WorkflowBuilder({ existing }: { existing?: Workflow }) {
   const { token } = useAuth();
   const router = useRouter();
-  const initial = buildInitialGraph();
+  const catalog = useCatalog();
+  const [initial] = useState(() => (existing ? buildGraphFromWorkflow(existing, catalog) : buildInitialGraph()));
+  const [initialName] = useState(existing?.name ?? "Untitled workflow");
+  const [initialSnapshot] = useState(() => graphSnapshot(initial.nodes, initial.edges));
 
-  const [name, setName] = useState("Untitled workflow");
+  const [name, setName] = useState(initialName);
   const [nodes, setNodes, onNodesChange] = useNodesState(initial.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initial.edges);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -35,7 +43,21 @@ export function WorkflowBuilder() {
   const [showMissing, setShowMissing] = useState(false);
 
   const { trigger, orderedActionNodes } = orderSteps(nodes, edges);
-  const canSave = !!trigger?.data.item;
+  const dirty = name !== initialName || graphSnapshot(nodes, edges) !== initialSnapshot;
+  const canSave = !!trigger?.data.item && (!existing || dirty);
+
+  // Closing or reloading the tab with unsaved edits asks first.
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty]);
+
+  function handleCancel() {
+    if (dirty && !window.confirm("Discard your changes?")) return;
+    router.push(existing ? `/workflows/${existing.id}` : "/workflows");
+  }
 
   const stepNumbers = useMemo(() => {
     const map = new Map<string, number>();
@@ -81,7 +103,13 @@ export function WorkflowBuilder() {
 
     setSaving(true);
     try {
-      const workflow = await createWorkflow({ name, graph: result.graph }, token);
+      const workflow = existing
+        ? await updateWorkflow(
+            existing.id,
+            { name, graph: result.graph, baseVersionId: existing.currentVersionId ?? null },
+            token
+          )
+        : await createWorkflow({ name, graph: result.graph }, token);
       router.push(`/workflows/${workflow.id}`);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Failed to save workflow");
@@ -102,19 +130,21 @@ export function WorkflowBuilder() {
               placeholder="Workflow name"
             />
             <p className="mt-1 text-xs text-text-muted">
-              Click the trigger to start, then use + to chain or branch actions.
+              {existing
+                ? `Editing v${existing.version ?? 1}. Saving creates a new version; runs already going keep theirs.`
+                : "Click the trigger to start, then use + to chain or branch actions."}
             </p>
             {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
           </div>
 
-          <Button
-            onClick={handleSave}
-            disabled={!canSave}
-            loading={saving}
-            className="pointer-events-auto"
-          >
-            Save workflow
-          </Button>
+          <div className="pointer-events-auto flex items-center gap-2">
+            <Button variant="ghost" onClick={handleCancel}>
+              Cancel
+            </Button>
+            <Button onClick={handleSave} disabled={!canSave} loading={saving}>
+              {existing ? (dirty ? "Save changes" : "No changes") : "Save workflow"}
+            </Button>
+          </div>
         </div>
 
         <WorkflowCanvas
