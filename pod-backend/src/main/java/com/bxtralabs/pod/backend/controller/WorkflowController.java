@@ -62,6 +62,18 @@ public class WorkflowController {
         return toResponse(workflowService.update(id, userId, request.name(), request.graph(), request.baseVersionId()));
     }
 
+    public record ActiveRequest(@NotNull(message = "active is required") Boolean active) {}
+
+    // On/off for workflows with an app trigger. Turning on registers the trigger with the app; a
+    // 400 says why it couldn't be.
+    @PutMapping("/workflow/{id}/active")
+    public WorkflowResponse setActive(@RequestHeader("Authorization") String authorizationHeader,
+                                      @PathVariable String id,
+                                      @Valid @RequestBody ActiveRequest request) {
+        String userId = authService.requireUserId(authorizationHeader);
+        return toResponse(workflowService.setActive(id, userId, request.active()));
+    }
+
     private WorkflowResponse toResponse(Workflow workflow) {
         WorkflowVersion version = workflowService.getCurrentVersion(workflow);
         return new WorkflowResponse(
@@ -72,7 +84,8 @@ public class WorkflowController {
                 workflow.getCurrentVersionId(),
                 version == null ? null : version.getVersion(),
                 version == null ? null : secretMasker.mask(version.getGraph()),
-                workflow.getActions()
+                workflow.getActions(),
+                workflow.isActive()
         );
     }
 
@@ -92,6 +105,7 @@ public class WorkflowController {
             String currentVersionId,
             Integer version,
             WorkflowGraph graph,
-            List<Action> actions
+            List<Action> actions,
+            boolean active
     ) {}
 }

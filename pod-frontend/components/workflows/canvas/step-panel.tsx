@@ -273,7 +273,7 @@ export function StepPanel({
         {tab === "test" &&
           (run?.selected ? (
             run.step ? (
-              <StepRunDetails step={run.step} now={run.now} />
+              <StepRunDetails step={run.step} now={run.now} isTrigger={isTrigger} />
             ) : (
               <p className="text-sm text-text-muted">
                 This step wasn&apos;t part of the selected run -- the workflow
@@ -445,7 +445,7 @@ function accountLabel(c: AppConnection) {
 
 // What one step did in the selected run: status, timing, error, and the exact
 // input it ran with (templates resolved) and output it produced.
-function StepRunDetails({ step, now }: { step: StepDetail; now: number }) {
+function StepRunDetails({ step, now, isTrigger }: { step: StepDetail; now: number; isTrigger: boolean }) {
   const finished = step.endedAt != null && step.status !== "RUNNING";
   const duration =
     step.startedAt != null ? (finished ? step.endedAt! : now) - step.startedAt : null;
@@ -486,8 +486,14 @@ function StepRunDetails({ step, now }: { step: StepDetail; now: number }) {
         </JsonSection>
       )}
       {Array.isArray(step.output?.explain) && <Decision output={step.output!} />}
-      {step.input != null && <JsonSection label="Input">{json(step.input)}</JsonSection>}
-      {step.output != null && <JsonSection label="Output">{json(step.output)}</JsonSection>}
+      {isTrigger && step.output != null ? (
+        <TriggerData body={step.output.body} />
+      ) : (
+        <>
+          {step.input != null && <JsonSection label="Input">{json(step.input)}</JsonSection>}
+          {step.output != null && <JsonSection label="Output">{json(step.output)}</JsonSection>}
+        </>
+      )}
     </div>
   );
 }
@@ -583,4 +589,35 @@ function Decision({ output }: { output: Record<string, unknown> }) {
 function show(v: unknown) {
   if (v === null || v === undefined || v === "") return "(empty)";
   return typeof v === "string" ? `"${v}"` : JSON.stringify(v);
+}
+
+// What started the run (the webhook's body, or the app event's data), with the template each
+// field is used by in later steps.
+function TriggerData({ body }: { body: unknown }) {
+  const fields = body && typeof body === "object" && !Array.isArray(body) ? Object.entries(body as Record<string, unknown>) : [];
+  return (
+    <div className="space-y-4">
+      {fields.length > 0 && (
+        <div>
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-text-muted">Trigger data</p>
+          <dl className="divide-y divide-border overflow-hidden rounded-xl border border-border-strong bg-surface-sunken">
+            {fields.map(([key, value]) => (
+              <div key={key} className="px-4 py-2.5">
+                <dt className="font-mono text-[11px] text-lemon">{`{{trigger.body.${key}}}`}</dt>
+                <dd className="mt-0.5 break-words text-sm text-text">{preview(value)}</dd>
+              </div>
+            ))}
+          </dl>
+          <p className="mt-2 text-xs text-text-faint">Use these in later steps with Insert data, or type the template.</p>
+        </div>
+      )}
+      <JsonSection label={fields.length > 0 ? "Everything received" : "Trigger data"}>{json(body ?? null)}</JsonSection>
+    </div>
+  );
+}
+
+function preview(value: unknown) {
+  if (value === null || value === undefined || value === "") return <span className="text-text-faint">(empty)</span>;
+  const text = typeof value === "string" ? value : JSON.stringify(value);
+  return text.length > 160 ? text.slice(0, 160) + "…" : text;
 }

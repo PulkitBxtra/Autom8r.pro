@@ -107,6 +107,17 @@ export type Workflow = {
   // Null for workflows saved before versioning; those only have the legacy actions list.
   graph?: WorkflowGraph | null;
   actions?: Action[] | null;
+  // Switched on: its app trigger listens for events (app-trigger workflows only).
+  active?: boolean;
+};
+
+// Whether an active workflow's app trigger is registered with the app (from pod-connector).
+export type TriggerStatus = {
+  status: "ACTIVE" | "ERROR";
+  error: string | null;
+  lastEventAt: number | null;
+  appId: string;
+  triggerId: string;
 };
 
 // A run is PENDING until pod-processor picks it up, RUNNING while its steps

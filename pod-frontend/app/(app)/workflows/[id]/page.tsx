@@ -11,6 +11,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { WorkflowCanvas } from "@/components/workflows/canvas/workflow-canvas";
 import { StepPanel } from "@/components/workflows/canvas/step-panel";
 import { StepConnectionsProvider } from "@/components/workflows/step-connections";
+import { TriggerSwitch } from "@/components/workflows/trigger-switch";
 import { useCatalog } from "@/lib/catalog-context";
 import { RunHistory } from "@/components/workflows/run-history";
 import { RunStatusBadge, RunStepsContext } from "@/components/workflows/run-status";
@@ -75,6 +76,8 @@ export default function WorkflowDetailPage({
       ? JSON.stringify(runDetail.graph)
       : null;
   const catalog = useCatalog();
+  // An app trigger (GitHub, Slack...) gets the on/off switch; the Webhook trigger is always on.
+  const appTrigger = workflow?.graph?.nodes.find((n) => n.kind === "trigger" && n.appId && n.appId !== "app_webhook") ?? null;
   const graph = useMemo(() => {
     // Wait for the catalog so steps don't flash their stored fallback names first.
     if (!workflow || catalog.loading) return { nodes: [], edges: [] };
@@ -109,13 +112,22 @@ export default function WorkflowDetailPage({
   }, [orderedActionNodes]);
   const selectedNode = nodes.find((n) => n.id === selectedNodeId);
 
+  // Picking a run with no step open shows what started it: the trigger's panel, on its Test tab.
+  function selectRun(runId: string | null) {
+    setSelectedRunId(runId);
+    if (runId && !selectedNodeId) {
+      const trigger = nodes.find((n) => n.data.kind === "trigger");
+      if (trigger) setSelectedNodeId(trigger.id);
+    }
+  }
+
   async function handleRun() {
     setRunning(true);
     setRunError(null);
     try {
       const executionId = await triggerWorkflow(id, { source: "manual-test" });
       // Jump straight to the new run and watch it execute.
-      setSelectedRunId(executionId);
+      selectRun(executionId);
       setRunsRefreshKey((k) => k + 1);
     } catch (err) {
       setRunError(err instanceof ApiError ? err.message : "Failed to trigger workflow");
@@ -159,6 +171,10 @@ export default function WorkflowDetailPage({
                     {countActions(workflow) + 1} steps
                     {workflow.version != null && <> · v{workflow.version}</>}
                   </p>
+
+                  {appTrigger && (
+                    <TriggerSwitch workflow={workflow} trigger={appTrigger} onChange={setWorkflow} />
+                  )}
 
                   {selectedRunId && (
                     <div className="mt-3 flex items-center gap-2 border-t border-border pt-3">
@@ -222,6 +238,8 @@ export default function WorkflowDetailPage({
                 node={selectedNode}
                 stepNumber={stepNumbers.get(selectedNode.id) ?? 1}
                 sources={upstreamSources(selectedNode.id, nodes, edges, stepNumbers)}
+                // Viewing a run: open on Test, even before the run's details have loaded.
+                initialTab={selectedRunId ? "test" : undefined}
                 readOnly
                 onClose={() => setSelectedNodeId(null)}
                 run={{
@@ -244,7 +262,7 @@ export default function WorkflowDetailPage({
               selectedRunId={selectedRunId}
               currentVersion={workflow.version}
               now={now}
-              onSelect={setSelectedRunId}
+              onSelect={selectRun}
             />
           </div>
         </div>

@@ -1,5 +1,5 @@
-import { backend, webhooks } from "./client";
-import type { Workflow, WorkflowGraph } from "@/lib/types";
+import { backend, connector, webhooks } from "./client";
+import type { TriggerStatus, Workflow, WorkflowGraph } from "@/lib/types";
 
 export function listWorkflows(token: string) {
   return backend.get<Workflow[]>("/workflows", token);
@@ -28,6 +28,16 @@ export function updateWorkflow(
   token: string
 ) {
   return backend.put<Workflow>(`/workflow/${id}`, input, token);
+}
+
+// On/off for workflows with an app trigger; a 400 says why it couldn't be turned on.
+export function setWorkflowActive(id: string, active: boolean, token: string) {
+  return backend.put<Workflow>(`/workflow/${id}/active`, { active }, token);
+}
+
+// Is the trigger listening; null when nothing is registered (off, or a webhook trigger).
+export function getTriggerStatus(workflowId: string, token: string) {
+  return connector.get<TriggerStatus | null>(`/triggers/${workflowId}`, token);
 }
 
 export function triggerWorkflow(workflowId: string, payload: unknown = {}) {

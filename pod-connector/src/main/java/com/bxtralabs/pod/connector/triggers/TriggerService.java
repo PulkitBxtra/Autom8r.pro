@@ -1,0 +1,207 @@
+package com.bxtralabs.pod.connector.triggers;
+
+import com.bxtralabs.pod.connector.common.NotFoundException;
+import com.bxtralabs.pod.connector.connections.CredentialCipher;
+import com.bxtralabs.pod.connector.connections.TokenService;
+import com.bxtralabs.pod.connector.model.Connection;
+import com.bxtralabs.pod.connector.model.TriggerSubscription;
+import com.bxtralabs.pod.connector.repository.ConnectionRepository;
+import com.bxtralabs.pod.connector.repository.TriggerDeliveryRepository;
+import com.bxtralabs.pod.connector.repository.TriggerSubscriptionRepository;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Service;
+import tools.jackson.databind.json.JsonMapper;
+
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.SecureRandom;
+import java.util.*;
+
+// Keeps each active workflow's app trigger registered with the app, and turns the app's
+// deliveries into runs. pod-backend calls subscribe when a workflow is turned on (or saved again
+// while on) and unsubscribe when it's turned off.
+@Service
+public class TriggerService {
+
+    public record Status(String status, String error, Long lastEventAt, String appId, String triggerId) {
+    }
+
+    private final TriggerSubscriptionRepository subscriptions;
+    private final TriggerDeliveryRepository deliveries;
+    private final ConnectionRepository connections;
+    private final TokenService tokens;
+    private final CredentialCipher cipher;
+    private final List<AppTriggerRegistrar> registrars;
+    private final GitHubTriggers github;
+    private final RunStarter runs;
+    private final JsonMapper jsonMapper;
+    private final String publicUrl;
+    private final SecureRandom random = new SecureRandom();
+
+    public TriggerService(TriggerSubscriptionRepository subscriptions, TriggerDeliveryRepository deliveries,
+                          ConnectionRepository connections, TokenService tokens, CredentialCipher cipher,
+                          List<AppTriggerRegistrar> registrars, GitHubTriggers github, RunStarter runs, JsonMapper jsonMapper,
+                          @Value("${triggers.public-url:}") String publicUrl) {
+        this.subscriptions = subscriptions;
+        this.deliveries = deliveries;
+        this.connections = connections;
+        this.tokens = tokens;
+        this.cipher = cipher;
+        this.registrars = registrars;
+        this.github = github;
+        this.runs = runs;
+        this.jsonMapper = jsonMapper;
+        this.publicUrl = publicUrl == null ? "" : publicUrl.trim().replaceAll("/+$", "");
+    }
+
+    // Registers the workflow's trigger with its app (replacing what was registered before, unless
+    // it's unchanged). Apps without app triggers (Webhook, Logic) need nothing and get null.
+    public Status subscribe(String workflowId, String userId, String appId, String triggerId, String connectionId,
+                            Map<String, Object> config) {
+        AppTriggerRegistrar registrar = registrars.stream().filter(r -> r.supports(appId)).findFirst().orElse(null);
+        Optional<TriggerSubscription> existing = subscriptions.findByWorkflowId(workflowId);
+        if (registrar == null) {
+            existing.ifPresent(this::remove);
+            return null;
+        }
+        Map<String, Object> cfg = config == null ? Map.of() : config;
+        if (existing.isPresent()) {
+            TriggerSubscription e = existing.get();
+            if (TriggerSubscription.STATUS_ACTIVE.equals(e.getStatus()) && e.getAppId().equals(appId)
+                    && e.getTriggerId().equals(triggerId) && Objects.equals(e.getConnectionId(), connectionId)
+                    && Objects.equals(e.getConfig(), cfg)) {
+                return status(e); // already listening for exactly this
+            }
+            remove(e);
+        }
+
+        TriggerSubscription s = new TriggerSubscription();
+        s.setWorkflowId(workflowId);
+        s.setUserId(userId);
+        s.setAppId(appId);
+        s.setTriggerId(triggerId);
+        s.setConnectionId(connectionId);
+        s.setConfig(new LinkedHashMap<>(cfg));
+        String secret = randomSecret();
+        s.setSecret(cipher.encrypt(Map.of("secret", secret)));
+        s.setStatus(TriggerSubscription.STATUS_ERROR);
+        s = subscriptions.save(s); // the id goes into the hook URL
+        try {
+            if (publicUrl.isEmpty()) {
+                throw new TriggerSetupException("App triggers need a public address for Autom8r (TRIGGERS_PUBLIC_URL isn't set)");
+            }
+            Connection c = connections.findById(connectionId == null ? "" : connectionId)
+                    .filter(found -> found.getUserId().equals(userId) && found.getAppId().equals(appId))
+                    .orElseThrow(() -> new TriggerSetupException("The trigger's account no longer exists; choose another"));
+            Map<String, String> creds = tokens.getValidCredentials(c.getId());
+            String hookUrl = publicUrl + "/hooks/" + appId.replaceFirst("^app_", "") + "/" + s.getId();
+            s.setExternalId(registrar.register(s, creds, hookUrl, secret));
+            s.setStatus(TriggerSubscription.STATUS_ACTIVE);
+            s.setLastError(null);
+        } catch (TriggerSetupException e) {
+            s.setLastError(e.getMessage());
+        } catch (RuntimeException e) {
+            // e.g. the connection needs reconnecting (ConnectionNeedsReauthException)
+            s.setLastError(e.getMessage());
+        }
+        return status(subscriptions.save(s));
+    }
+
+    public void unsubscribe(String workflowId) {
+        subscriptions.findByWorkflowId(workflowId).ifPresent(this::remove);
+    }
+
+    // For the workflow's owner (null if nothing is registered).
+    public Status statusFor(String workflowId, String userId) {
+        return subscriptions.findByWorkflowId(workflowId)
+                .filter(s -> s.getUserId().equals(userId))
+                .map(TriggerService::status)
+                .orElse(null);
+    }
+
+    private void remove(TriggerSubscription s) {
+        registrars.stream().filter(r -> r.supports(s.getAppId())).findFirst().ifPresent(r -> {
+            try {
+                if (s.getExternalId() != null && s.getConnectionId() != null) {
+                    r.unregister(s, tokens.getValidCredentials(s.getConnectionId()));
+                }
+            } catch (RuntimeException e) {
+                System.out.println("Couldn't unregister " + s + ": " + e.getMessage());
+            }
+        });
+        subscriptions.delete(s);
+    }
+
+    private static Status status(TriggerSubscription s) {
+        return new Status(s.getStatus(), s.getLastError(), s.getLastEventAt(), s.getAppId(), s.getTriggerId());
+    }
+
+    // ---- deliveries ----
+
+    public enum Outcome { STARTED, IGNORED, DUPLICATE }
+
+    // A GitHub webhook delivery for a subscription. Rejects anything not signed with its secret.
+    public Outcome onGitHubDelivery(String subscriptionId, String signature, String event, String deliveryId, byte[] body) {
+        TriggerSubscription s = subscriptions.findById(subscriptionId)
+                .filter(found -> "app_github".equals(found.getAppId()))
+                .orElseThrow(() -> new NotFoundException("No such trigger"));
+        String secret = cipher.decrypt(s.getSecret()).get("secret");
+        if (!validGitHubSignature(secret, body, signature)) {
+            throw new InvalidDeliveryException();
+        }
+        if ("ping".equals(event)) {
+            return Outcome.IGNORED; // GitHub's hello when the hook is created
+        }
+        Map<?, ?> payload = jsonMapper.readValue(body, Map.class);
+        Optional<Map<String, Object>> triggerBody = github.toTriggerBody(s.getTriggerId(), event, payload);
+        if (triggerBody.isEmpty()) {
+            return Outcome.IGNORED;
+        }
+        if (deliveryId != null && deliveries.recordNew("github:" + deliveryId, s.getId(), System.currentTimeMillis()) == 0) {
+            return Outcome.DUPLICATE;
+        }
+        try {
+            runs.start(s.getWorkflowId(), triggerBody.get());
+        } catch (RuntimeException e) {
+            // Let GitHub redeliver it: forget we saw it.
+            if (deliveryId != null) deliveries.deleteById("github:" + deliveryId);
+            throw e;
+        }
+        s.setLastEventAt(System.currentTimeMillis());
+        subscriptions.save(s);
+        return Outcome.STARTED;
+    }
+
+    // X-Hub-Signature-256: "sha256=" + hex(HMAC-SHA256(secret, raw body)), compared in constant time.
+    static boolean validGitHubSignature(String secret, byte[] body, String header) {
+        if (header == null || !header.startsWith("sha256=")) return false;
+        try {
+            Mac mac = Mac.getInstance("HmacSHA256");
+            mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+            String expected = "sha256=" + HexFormat.of().formatHex(mac.doFinal(body));
+            return MessageDigest.isEqual(expected.getBytes(StandardCharsets.UTF_8), header.getBytes(StandardCharsets.UTF_8));
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    @Scheduled(fixedDelayString = "${triggers.delivery-prune-interval-ms:3600000}")
+    public void pruneDeliveries() {
+        deliveries.deleteOlderThan(System.currentTimeMillis() - 7L * 24 * 3600_000);
+    }
+
+    private String randomSecret() {
+        byte[] b = new byte[32];
+        random.nextBytes(b);
+        return HexFormat.of().formatHex(b);
+    }
+
+    public static class InvalidDeliveryException extends RuntimeException {
+        public InvalidDeliveryException() {
+            super("Signature doesn't match");
+        }
+    }
+}

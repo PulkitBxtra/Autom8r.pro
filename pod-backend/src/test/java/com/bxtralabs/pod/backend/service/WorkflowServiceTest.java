@@ -14,6 +14,7 @@ import com.bxtralabs.pod.backend.model.graph.WorkflowGraph;
 import com.bxtralabs.pod.backend.repository.ConnectionViewRepository;
 import com.bxtralabs.pod.backend.repository.WorkflowRepository;
 import com.bxtralabs.pod.backend.repository.WorkflowVersionRepository;
+import com.bxtralabs.pod.backend.triggers.TriggerSync;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -44,6 +45,8 @@ class WorkflowServiceTest {
     private WorkflowVersionRepository workflowVersionRepository;
     @Mock
     private ConnectionViewRepository connectionViewRepository;
+    @Mock
+    private TriggerSync triggerSync;
     @Spy
     private GraphValidator graphValidator = new GraphValidator();
     @Spy
@@ -254,5 +257,74 @@ class WorkflowServiceTest {
                 new WorkflowGraph(List.of(WEBHOOK, missingTitle), List.of(new GraphEdge("t", "a", null, null)))));
         assertEquals("Step \"Create Issue\" needs Title", e.getMessage());
         verify(workflowRepository, never()).save(any());
+    }
+
+    // ---- on/off (D) ----
+
+    private Workflow withGitHubTrigger(boolean active) {
+        GraphNode trigger = new GraphNode("t", "trigger", "GitHub", "trg_github_new_issue", "New Issue", null,
+                Map.of("repository", "octo/app"), null, "app_github", "con_1", null);
+        WorkflowVersion v = new WorkflowVersion("wfl_1", 1, new WorkflowGraph(List.of(trigger), List.of()));
+        v.setId("wfv_1");
+        Workflow w = new Workflow("wfl_1", "Flow", "trg_github_new_issue", "usr_1", null);
+        w.setCurrentVersionId("wfv_1");
+        w.setActive(active);
+        when(workflowRepository.findById("wfl_1")).thenReturn(Optional.of(w));
+        when(workflowVersionRepository.findById("wfv_1")).thenReturn(Optional.of(v));
+        return w;
+    }
+
+    @Test
+    void turningOnRegistersTheTriggerAndOffRemovesIt() {
+        Workflow w = withGitHubTrigger(false);
+        when(triggerSync.subscribe(eq("wfl_1"), eq("usr_1"), any())).thenReturn(new TriggerSync.Status("ACTIVE", null));
+        assertTrue(workflowService.setActive("wfl_1", "usr_1", true).isActive());
+        verify(triggerSync).subscribe(eq("wfl_1"), eq("usr_1"), argThat(n -> "trg_github_new_issue".equals(n.itemId())));
+
+        assertFalse(workflowService.setActive("wfl_1", "usr_1", false).isActive());
+        verify(triggerSync).unsubscribe("wfl_1");
+    }
+
+    @Test
+    void ifTheAppRefusesItStaysOffWithTheReason() {
+        Workflow w = withGitHubTrigger(false);
+        when(triggerSync.subscribe(any(), any(), any())).thenReturn(new TriggerSync.Status("ERROR", "needs admin access"));
+        Exception e = assertThrows(IllegalArgumentException.class, () -> workflowService.setActive("wfl_1", "usr_1", true));
+        assertEquals("needs admin access", e.getMessage());
+        assertFalse(w.isActive());
+        verify(triggerSync).unsubscribe("wfl_1"); // nothing left half-registered
+    }
+
+    @Test
+    void webhookWorkflowsHaveNoSwitchAndOthersOwnersCantFlipIt() {
+        GraphNode hook = new GraphNode("t", "trigger", "Webhook", "trg_webhook_catch", null, null, Map.of(), null, "app_webhook", null, null);
+        WorkflowVersion v = new WorkflowVersion("wfl_1", 1, new WorkflowGraph(List.of(hook), List.of()));
+        v.setId("wfv_1");
+        Workflow w = new Workflow("wfl_1", "Flow", "trg_webhook_catch", "usr_1", null);
+        w.setCurrentVersionId("wfv_1");
+        when(workflowRepository.findById("wfl_1")).thenReturn(Optional.of(w));
+        when(workflowVersionRepository.findById("wfv_1")).thenReturn(Optional.of(v));
+        assertTrue(assertThrows(IllegalArgumentException.class, () -> workflowService.setActive("wfl_1", "usr_1", true))
+                .getMessage().contains("always on"));
+        assertThrows(NotFoundException.class, () -> workflowService.setActive("wfl_1", "usr_2", true));
+        verifyNoInteractions(triggerSync);
+    }
+
+    @Test
+    void savingAnActiveWorkflowReRegistersItsTriggerOrTurnsItOff() {
+        Workflow w = withGitHubTrigger(true);
+        when(connectionViewRepository.findAllById(List.of("con_1"))).thenReturn(List.of(new ConnectionView("con_1", "usr_1", "app_github")));
+        GraphNode trigger = new GraphNode("t", "trigger", "GitHub", "trg_github_new_issue", null, null,
+                Map.of("repository", "octo/other"), null, "app_github", "con_1", null);
+        WorkflowGraph moved = new WorkflowGraph(List.of(trigger), List.of());
+
+        when(triggerSync.subscribe(any(), any(), any())).thenReturn(new TriggerSync.Status("ACTIVE", null));
+        workflowService.update("wfl_1", "usr_1", "Flow", moved, null);
+        verify(triggerSync).subscribe(eq("wfl_1"), eq("usr_1"), argThat(n -> n.parameters().get("repository").equals("octo/other")));
+        assertTrue(w.isActive());
+
+        when(triggerSync.subscribe(any(), any(), any())).thenReturn(new TriggerSync.Status("ERROR", "no access"));
+        workflowService.update("wfl_1", "usr_1", "Flow", moved, null);
+        assertFalse(w.isActive(), "turned off rather than looking on while nothing listens");
     }
 }

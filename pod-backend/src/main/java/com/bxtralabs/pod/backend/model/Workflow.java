@@ -22,6 +22,9 @@ public class Workflow {
     private String userId;
     // Latest WorkflowVersion; new runs execute this graph.
     private String currentVersionId;
+    // Switched on: its app trigger (GitHub, Slack...) is registered and events start runs.
+    // Webhook-triggered workflows don't use it; their URL always works.
+    private Boolean active;
     @OneToMany
     @JoinColumn(name = "workflow_id")
     private List<Action> actions;
@@ -35,6 +38,14 @@ public class Workflow {
         this.triggerId = triggerId;
         this.userId = userId;
         this.actions = actions;
+    }
+
+    public boolean isActive() {
+        return active != null && active;
+    }
+
+    public void setActive(boolean active) {
+        this.active = active;
     }
 
     public String getId() {

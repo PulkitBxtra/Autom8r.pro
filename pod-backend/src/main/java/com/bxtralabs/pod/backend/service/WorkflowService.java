@@ -12,6 +12,7 @@ import com.bxtralabs.pod.backend.model.graph.WorkflowGraph;
 import com.bxtralabs.pod.backend.repository.ConnectionViewRepository;
 import com.bxtralabs.pod.backend.repository.WorkflowRepository;
 import com.bxtralabs.pod.backend.repository.WorkflowVersionRepository;
+import com.bxtralabs.pod.backend.triggers.TriggerSync;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -42,6 +43,9 @@ public class WorkflowService {
 
     @Autowired
     private ConnectionViewRepository connectionViewRepository;
+
+    @Autowired
+    private TriggerSync triggerSync;
 
     public List<Workflow> listForUser(String userId) {
         return workflowRepository.findByUserId(userId);
@@ -100,7 +104,58 @@ public class WorkflowService {
         workflow.setName(name);
 
         saveNewVersion(workflow, graph);
+        Workflow saved = workflowRepository.save(workflow);
+        // Still on: listen for what the new version's trigger says (its repository may have changed).
+        if (saved.isActive()) {
+            resubscribeOrTurnOff(saved, graph);
+        }
+        return saved;
+    }
+
+    // Turns a workflow with an app trigger on (registering the trigger with the app) or off.
+    // Throws IllegalArgumentException (a 400) with the reason when it can't be turned on.
+    @Transactional
+    public Workflow setActive(String id, String userId, boolean active) {
+        Workflow workflow = getForUser(id, userId);
+        GraphNode trigger = triggerNode(workflow);
+        if (trigger == null || "app_webhook".equals(trigger.appId())) {
+            throw new IllegalArgumentException("Webhook-triggered workflows are always on: calling their URL runs them");
+        }
+        if (!active) {
+            triggerSync.unsubscribe(workflow.getId());
+            workflow.setActive(false);
+            return workflowRepository.save(workflow);
+        }
+        TriggerSync.Status status = triggerSync.subscribe(workflow.getId(), userId, trigger);
+        if (status == null) {
+            throw new IllegalArgumentException(trigger.appName() + " triggers can't start workflows yet");
+        }
+        if (!status.listening()) {
+            triggerSync.unsubscribe(workflow.getId());
+            throw new IllegalArgumentException(status.error() != null ? status.error() : "Couldn't set up the trigger");
+        }
+        workflow.setActive(true);
         return workflowRepository.save(workflow);
+    }
+
+    // After saving a new version of an active workflow: if its trigger can't be registered any
+    // more (e.g. the new repository refuses the webhook), turn the workflow off rather than leave
+    // it looking on while nothing listens.
+    private void resubscribeOrTurnOff(Workflow workflow, WorkflowGraph graph) {
+        GraphNode trigger = graph.nodes().stream().filter(n -> GraphNode.KIND_TRIGGER.equals(n.kind())).findFirst().orElse(null);
+        TriggerSync.Status status = trigger == null || "app_webhook".equals(trigger.appId()) ? null
+                : triggerSync.subscribe(workflow.getId(), workflow.getUserId(), trigger);
+        if (status == null || !status.listening()) {
+            triggerSync.unsubscribe(workflow.getId());
+            workflow.setActive(false);
+            workflowRepository.save(workflow);
+        }
+    }
+
+    private GraphNode triggerNode(Workflow workflow) {
+        WorkflowVersion version = getCurrentVersion(workflow);
+        if (version == null || version.getGraph() == null) return null;
+        return version.getGraph().nodes().stream().filter(n -> GraphNode.KIND_TRIGGER.equals(n.kind())).findFirst().orElse(null);
     }
 
     // A step may only use one of the saving user's own connections, made for the step's app.

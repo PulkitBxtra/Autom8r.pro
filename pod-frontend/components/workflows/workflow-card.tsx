@@ -30,6 +30,7 @@ export function WorkflowCard({ workflow }: { workflow: Workflow }) {
         </p>
 
         <div className="mt-4 flex items-center gap-2">
+          {workflow.active && <Badge tone="lemon">On</Badge>}
           <Badge tone="lemon">
             {actionCount} {actionCount === 1 ? "action" : "actions"}
           </Badge>
