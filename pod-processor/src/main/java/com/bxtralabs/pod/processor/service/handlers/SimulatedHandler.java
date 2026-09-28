@@ -21,6 +21,16 @@ public class SimulatedHandler implements ActionHandler {
         return true;
     }
 
+    // Says whether an account was available (never what it holds), which is what the real
+    // handler will need.
+    @Override
+    public Map<String, Object> execute(GraphNode node, Map<String, Object> input, StepCredentials credentials) {
+        Map<String, Object> output = execute(node, input);
+        output.put("account", credentials == null ? null : Map.of("connectionId", credentials.connectionId(),
+                "authType", credentials.authType()));
+        return output;
+    }
+
     @Override
     public Map<String, Object> execute(GraphNode node, Map<String, Object> input) {
         Map<String, Object> output = new LinkedHashMap<>();

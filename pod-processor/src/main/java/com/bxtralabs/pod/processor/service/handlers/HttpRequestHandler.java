@@ -46,6 +46,30 @@ public class HttpRequestHandler implements ActionHandler {
         return TYPE.equals(node.type());
     }
 
+    // With an HTTP connection: its header (e.g. Authorization) is added to the request, unless the
+    // step's own settings set the same header, which then wins. The recorded step input doesn't
+    // change, so the credential never shows up in the run.
+    @Override
+    public Map<String, Object> execute(GraphNode node, Map<String, Object> input, StepCredentials credentials)
+            throws Exception {
+        String name = credentials == null ? null : credentials.get("headerName");
+        String value = credentials == null ? null : credentials.get("headerValue");
+        if (name == null || name.isBlank() || value == null) {
+            return execute(node, input);
+        }
+        Map<String, Object> headers = new LinkedHashMap<>();
+        headers.put(name.trim(), value);
+        if (input.get("headers") instanceof Map<?, ?> own) {
+            own.forEach((k, v) -> {
+                headers.keySet().removeIf(existing -> existing.equalsIgnoreCase(String.valueOf(k)));
+                headers.put(String.valueOf(k), v);
+            });
+        }
+        Map<String, Object> withHeader = new LinkedHashMap<>(input);
+        withHeader.put("headers", headers);
+        return execute(node, withHeader);
+    }
+
     @Override
     public Map<String, Object> execute(GraphNode node, Map<String, Object> input) throws Exception {
         Object url = input.get("url");

@@ -192,4 +192,32 @@ class HandlersTest {
                 Map.of("url", "http://127.0.0.1:1/nothing", "timeoutSeconds", 2)));
         assertFalse(e instanceof PermanentStepException);
     }
+
+    // ---------- connections ----------
+
+    private static final StepCredentials HTTP_CONNECTION =
+            new StepCredentials("con_1", "app_http", "TOKEN", Map.of("headerName", "Authorization", "headerValue", "Bearer from-connection"));
+
+    @Test
+    void anHttpConnectionAddsItsHeaderWithoutChangingTheRecordedInput() throws Exception {
+        Map<String, Object> input = Map.of("url", baseUrl + "/json", "method", "POST", "body", Map.of("a", 1));
+        http.execute(node("HTTP", "http_request"), input, HTTP_CONNECTION);
+        assertEquals("Bearer from-connection", lastAuth.get());
+        assertFalse(input.containsKey("headers"), "the step's input is left as it was");
+    }
+
+    @Test
+    void aHeaderSetInTheStepWinsOverTheConnections() throws Exception {
+        http.execute(node("HTTP", "http_request"),
+                Map.of("url", baseUrl + "/json", "headers", Map.of("authorization", "Bearer from-step")), HTTP_CONNECTION);
+        assertEquals("Bearer from-step", lastAuth.get());
+    }
+
+    @Test
+    void simulatedStepsSayAnAccountWasUsedButNotWhatItHolds() {
+        Map<String, Object> out = new SimulatedHandler().execute(node("GitHub", "github.create_issue"), Map.of(), HTTP_CONNECTION);
+        assertEquals(Map.of("connectionId", "con_1", "authType", "TOKEN"), out.get("account"));
+        assertFalse(out.toString().contains("from-connection"));
+        assertFalse(HTTP_CONNECTION.toString().contains("from-connection"), "toString never shows the values");
+    }
 }

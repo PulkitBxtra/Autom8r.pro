@@ -2,6 +2,9 @@ package com.bxtralabs.pod.connector.common;
 
 import com.bxtralabs.pod.connector.connections.ConnectionsNotConfiguredException;
 import io.jsonwebtoken.JwtException;
+import com.bxtralabs.pod.connector.connections.ConnectionNeedsReauthException;
+import com.bxtralabs.pod.connector.connections.TokenRefreshException;
+import com.bxtralabs.pod.connector.internal.InternalAuth;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -24,6 +27,23 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(JwtException.class)
     public ResponseEntity<Map<String, String>> handleBadToken(JwtException ex) {
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Invalid or expired login token"));
+    }
+
+    @ExceptionHandler(InternalAuth.InternalAuthException.class)
+    public ResponseEntity<Map<String, String>> handleInternalAuth(InternalAuth.InternalAuthException ex) {
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", ex.getMessage()));
+    }
+
+    // The provider no longer accepts the connection; only the user can fix it by reconnecting.
+    @ExceptionHandler(ConnectionNeedsReauthException.class)
+    public ResponseEntity<Map<String, String>> handleNeedsReauth(ConnectionNeedsReauthException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", ex.getMessage(), "code", "needs_reauth"));
+    }
+
+    // Refresh failed for a reason that may pass (provider down, rate limited): try again later.
+    @ExceptionHandler(TokenRefreshException.class)
+    public ResponseEntity<Map<String, String>> handleRefresh(TokenRefreshException ex) {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Map.of("error", ex.getMessage(), "code", "temporary"));
     }
 
     @ExceptionHandler(NotFoundException.class)

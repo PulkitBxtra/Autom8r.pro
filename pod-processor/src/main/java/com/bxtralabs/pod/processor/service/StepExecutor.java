@@ -1,12 +1,16 @@
 package com.bxtralabs.pod.processor.service;
 
+import com.bxtralabs.pod.processor.model.ExecutionRun;
 import com.bxtralabs.pod.processor.model.StepRun;
 import com.bxtralabs.pod.processor.model.WorkflowVersion;
 import com.bxtralabs.pod.processor.model.graph.GraphNode;
 import com.bxtralabs.pod.processor.model.graph.WorkflowGraph;
 import com.bxtralabs.pod.processor.repository.ExecutionRunRepository;
 import com.bxtralabs.pod.processor.repository.StepRunRepository;
+import com.bxtralabs.pod.processor.repository.WorkflowOwnerRepository;
 import com.bxtralabs.pod.processor.repository.WorkflowVersionRepository;
+import com.bxtralabs.pod.processor.service.connections.ConnectionCredentialsClient;
+import com.bxtralabs.pod.processor.service.handlers.StepCredentials;
 import com.bxtralabs.pod.processor.service.handlers.ActionHandlerRegistry;
 import com.bxtralabs.pod.processor.service.handlers.PermanentStepException;
 import com.bxtralabs.pod.processor.service.template.TemplateResolver;
@@ -38,6 +42,12 @@ public class StepExecutor {
     private StepInputChecker inputChecker;
 
     @Autowired
+    private WorkflowOwnerRepository workflowOwners;
+
+    @Autowired
+    private ConnectionCredentialsClient credentialsClient;
+
+    @Autowired
     private ActionHandlerRegistry handlers;
 
     @Autowired
@@ -58,7 +68,8 @@ public class StepExecutor {
         try {
             StepRun step = stepRunRepository.findById(stepRunId).orElseThrow();
             attempt = step.getAttempt();
-            WorkflowGraph graph = graphFor(runId);
+            ExecutionRun run = executionRunRepository.findById(runId).orElseThrow();
+            WorkflowGraph graph = graphFor(run);
             GraphNode node = graph.nodes().stream()
                     .filter(n -> n.id().equals(step.getNodeId()))
                     .findFirst()
@@ -69,7 +80,9 @@ public class StepExecutor {
             input = templateResolver.resolveParameters(node.parameters(), TemplateResolver.context(graph, steps));
             // If the check fails, the run shows the input as resolved, which is what the user needs to see.
             input = inputChecker.check(node, input);
-            output = handlers.handlerFor(node).execute(node, input);
+            // Fetched per attempt, used for this call only: never part of the recorded input.
+            StepCredentials credentials = node.connectionId() == null ? null : credentialsFor(run, node);
+            output = handlers.handlerFor(node).execute(node, input, credentials);
         } catch (PermanentStepException e) {
             error = e.getMessage();
         } catch (Exception e) {
@@ -85,8 +98,15 @@ public class StepExecutor {
         resultPublisher.publish(new StepResultMessage(runId, stepRunId, input, output, error, retryable, attempt));
     }
 
-    private WorkflowGraph graphFor(String runId) {
-        String versionId = executionRunRepository.findById(runId).orElseThrow().getWorkflowVersionId();
+    private StepCredentials credentialsFor(ExecutionRun run, GraphNode node) throws PermanentStepException {
+        String owner = workflowOwners.findById(run.getWorkflowId())
+                .orElseThrow(() -> new PermanentStepException("This run's workflow no longer exists"))
+                .getUserId();
+        return credentialsClient.fetch(node.connectionId(), owner, node.appId());
+    }
+
+    private WorkflowGraph graphFor(ExecutionRun run) {
+        String versionId = run.getWorkflowVersionId();
         return workflowVersionRepository.findById(versionId)
                 .map(WorkflowVersion::getGraph)
                 .orElseThrow(() -> new IllegalStateException("Workflow version " + versionId + " not found"));

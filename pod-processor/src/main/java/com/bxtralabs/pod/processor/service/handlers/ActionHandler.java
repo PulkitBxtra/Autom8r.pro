@@ -11,4 +11,11 @@ public interface ActionHandler {
     boolean supports(GraphNode node);
 
     Map<String, Object> execute(GraphNode node, Map<String, Object> input) throws Exception;
+
+    // With the step's connection (null when it has none). Handlers that call an app override
+    // this; the rest ignore credentials.
+    default Map<String, Object> execute(GraphNode node, Map<String, Object> input, StepCredentials credentials)
+            throws Exception {
+        return execute(node, input);
+    }
 }
