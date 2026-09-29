@@ -1,5 +1,5 @@
 import { connector } from "./client";
-import type { AppConnection, ConnectorInfo, OAuthClient } from "@/lib/types";
+import type { AppConnection, ConnectorInfo, FieldOptions, OAuthClient } from "@/lib/types";
 
 export function listConnectors(token: string) {
   return connector.get<ConnectorInfo[]>("/connectors", token);
@@ -19,6 +19,12 @@ export function createConnection(appId: string, credentials: Record<string, stri
 // Same connection id afterwards, so workflows using it keep working.
 export function reconnectConnection(id: string, credentials: Record<string, string>, token: string) {
   return connector.put<AppConnection>(`/connection/${id}`, { credentials }, token);
+}
+
+// Choices for a step setting from one of the user's accounts; q narrows them.
+export function listOptions(connectionId: string, source: string, q: string, token: string) {
+  const query = q ? `?q=${encodeURIComponent(q)}` : "";
+  return connector.get<FieldOptions>(`/connections/${connectionId}/options/${source}${query}`, token);
 }
 
 export function deleteConnection(id: string, token: string) {

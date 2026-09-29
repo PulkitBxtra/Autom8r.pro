@@ -28,7 +28,14 @@ export type CatalogField = {
   // Hidden once saved: pod-backend sends SECRET_MASK instead. On keyvalue, only values of
   // sensitive-looking names (see isSensitiveKey).
   secret: boolean;
+  // A list pod-connector fills from the step's account ("slack.channels"...), offered as
+  // choices on a text field; the choice's value (an id) is what's saved.
+  optionsFrom: string | null;
 };
+
+// One choice from pod-connector's GET /connections/{id}/options/{source}.
+export type FieldOption = { value: string; label: string; hint: string | null };
+export type FieldOptions = { options: FieldOption[]; more: boolean };
 
 // One piece of data a trigger starts with or an action returns, offered in the data picker.
 // object: fields = what it holds; list: fields = what each item holds (none for plain values);

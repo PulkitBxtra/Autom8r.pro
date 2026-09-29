@@ -174,7 +174,7 @@
           "name": "New Message in Channel",
           "description": "A message is posted in a channel.",
           "fields": [
-            { "key": "channel", "label": "Channel", "type": "text", "required": true, "placeholder": "#general" }
+            { "key": "channel", "label": "Channel", "type": "text", "required": true, "placeholder": "#general", "optionsFrom": "slack.channels" }
           ],
           "outputs": [
             { "key": "text", "label": "Message text", "type": "text" },
@@ -210,7 +210,7 @@
           "description": "Posts a message to a channel.",
           "handler": "slack.post_message",
           "fields": [
-            { "key": "channel", "label": "Channel", "type": "text", "required": true, "placeholder": "#general" },
+            { "key": "channel", "label": "Channel", "type": "text", "required": true, "placeholder": "#general", "optionsFrom": "slack.channels" },
             { "key": "text", "label": "Message", "type": "textarea", "required": true },
             { "key": "threadTs", "label": "Reply in thread", "type": "text",
               "help": "Timestamp of the message to reply to. Leave empty to post a new message." }
@@ -227,7 +227,7 @@
           "description": "Sends a direct message to one person.",
           "handler": "slack.send_dm",
           "fields": [
-            { "key": "user", "label": "User", "type": "text", "required": true, "placeholder": "U012AB3CD or name@example.com" },
+            { "key": "user", "label": "User", "type": "text", "required": true, "placeholder": "U012AB3CD or name@example.com", "optionsFrom": "slack.users" },
             { "key": "text", "label": "Message", "type": "textarea", "required": true }
           ],
           "outputs": [
@@ -306,7 +306,7 @@
           "name": "New Issue",
           "description": "An issue is opened in a repository.",
           "fields": [
-            { "key": "repository", "label": "Repository", "type": "text", "required": true, "placeholder": "owner/repo" }
+            { "key": "repository", "label": "Repository", "type": "text", "required": true, "placeholder": "owner/repo", "optionsFrom": "github.repos" }
           ],
           "outputs": [
             { "key": "repository", "label": "Repository", "type": "text" },
@@ -324,7 +324,7 @@
           "name": "New Pull Request",
           "description": "A pull request is opened in a repository.",
           "fields": [
-            { "key": "repository", "label": "Repository", "type": "text", "required": true, "placeholder": "owner/repo" }
+            { "key": "repository", "label": "Repository", "type": "text", "required": true, "placeholder": "owner/repo", "optionsFrom": "github.repos" }
           ],
           "outputs": [
             { "key": "repository", "label": "Repository", "type": "text" },
@@ -348,7 +348,7 @@
           "description": "Opens an issue in a repository.",
           "handler": "github.create_issue",
           "fields": [
-            { "key": "repository", "label": "Repository", "type": "text", "required": true, "placeholder": "owner/repo" },
+            { "key": "repository", "label": "Repository", "type": "text", "required": true, "placeholder": "owner/repo", "optionsFrom": "github.repos" },
             { "key": "title", "label": "Title", "type": "text", "required": true },
             { "key": "body", "label": "Body", "type": "textarea", "help": "Markdown is supported." },
             { "key": "labels", "label": "Labels", "type": "text", "placeholder": "bug, triage",
@@ -369,7 +369,7 @@
           "description": "Comments on an issue or pull request.",
           "handler": "github.create_comment",
           "fields": [
-            { "key": "repository", "label": "Repository", "type": "text", "required": true, "placeholder": "owner/repo" },
+            { "key": "repository", "label": "Repository", "type": "text", "required": true, "placeholder": "owner/repo", "optionsFrom": "github.repos" },
             { "key": "issueNumber", "label": "Issue or PR number", "type": "number", "required": true },
             { "key": "body", "label": "Comment", "type": "textarea", "required": true, "help": "Markdown is supported." }
           ],
@@ -392,7 +392,7 @@
           "name": "New Page",
           "description": "A page is added to a database.",
           "fields": [
-            { "key": "databaseId", "label": "Database ID", "type": "text", "required": true }
+            { "key": "databaseId", "label": "Database", "type": "text", "required": true, "optionsFrom": "notion.databases" }
           ]
         },
         {
@@ -400,7 +400,7 @@
           "name": "Updated Database Item",
           "description": "An item in a database changes.",
           "fields": [
-            { "key": "databaseId", "label": "Database ID", "type": "text", "required": true }
+            { "key": "databaseId", "label": "Database", "type": "text", "required": true, "optionsFrom": "notion.databases" }
           ]
         }
       ],
@@ -411,7 +411,7 @@
           "description": "Creates a page in a database or under another page.",
           "handler": "notion.create_page",
           "fields": [
-            { "key": "parentId", "label": "Parent database or page ID", "type": "text", "required": true },
+            { "key": "parentId", "label": "Parent database or page", "type": "text", "required": true, "optionsFrom": "notion.parents" },
             { "key": "title", "label": "Title", "type": "text", "required": true },
             { "key": "properties", "label": "Properties", "type": "json",
               "help": "Database properties in Notion's format, e.g. {\"Status\": {\"select\": {\"name\": \"Done\"}}}." },
@@ -429,7 +429,7 @@
           "description": "Changes a page's properties.",
           "handler": "notion.update_page",
           "fields": [
-            { "key": "pageId", "label": "Page ID", "type": "text", "required": true },
+            { "key": "pageId", "label": "Page", "type": "text", "required": true, "optionsFrom": "notion.pages" },
             { "key": "properties", "label": "Properties", "type": "json", "required": true,
               "help": "Properties to change, in Notion's format." }
           ],

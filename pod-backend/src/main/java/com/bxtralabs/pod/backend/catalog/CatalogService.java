@@ -115,6 +115,15 @@ public class CatalogService {
             if (f.secret() && !"text".equals(f.type()) && !"keyvalue".equals(f.type())) {
                 throw invalid("marks " + where + " secret, which only text and keyvalue fields can be");
             }
+            if (f.optionsFrom() != null) {
+                if (!"text".equals(f.type())) {
+                    throw invalid("has optionsFrom on " + where + ", which only text fields can have");
+                }
+                if (!app.id().equals(CatalogField.OPTION_SOURCES.get(f.optionsFrom()))) {
+                    throw invalid("has " + where + " with optionsFrom " + f.optionsFrom() + ", which isn't a list of "
+                            + app.id() + " accounts");
+                }
+            }
             if (select && f.defaultValue() != null
                     && f.options().stream().noneMatch(o -> o.value().equals(f.defaultValue()))) {
                 throw invalid("has select " + where + " whose default isn't one of its options");

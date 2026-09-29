@@ -72,6 +72,22 @@ class CatalogServiceTest {
                 .orElseThrow().outputs().stream().map(CatalogOutput::key).toList(), "what GitHubHandler returns");
     }
 
+    // Account-backed choices only on text fields, and only lists of the step's own app's accounts.
+    @Test
+    void optionListsMustFitTheFieldAndTheApp() throws Exception {
+        CatalogField repo = new CatalogField("repository", "Repository", "text", true, null, null, null, null, null, "github.repos");
+        List<CatalogApp> github = List.of(new CatalogApp("app_github", "GitHub", null, "required", List.of(),
+                List.of(new CatalogApp.Action("act_x", "Do X", null, "h", List.of(repo), null))));
+        assertDoesNotThrow(() -> new CatalogService(github));
+        List<CatalogApp> slack = List.of(new CatalogApp("app_slack", "Slack", null, "required", List.of(),
+                List.of(new CatalogApp.Action("act_x", "Do X", null, "h", List.of(repo), null))));
+        assertInvalid(slack, "isn't a list of app_slack accounts");
+        CatalogField number = new CatalogField("n", "N", "number", false, null, null, null, null, null, "github.repos");
+        assertInvalid(List.of(new CatalogApp("app_github", "GitHub", null, "required", List.of(),
+                List.of(new CatalogApp.Action("act_x", "Do X", null, "h", List.of(number), null)))), "only text fields");
+        assertEquals("slack.channels", real().trigger("trg_slack_new_message").orElseThrow().fields().getFirst().optionsFrom());
+    }
+
     private static List<CatalogApp> appWithOutputs(CatalogOutput... outputs) {
         return List.of(new CatalogApp("app_x", "X", null, null, List.of(),
                 List.of(new CatalogApp.Action("act_x", "Do X", null, "h", List.of(), List.of(outputs)))));
@@ -92,7 +108,7 @@ class CatalogServiceTest {
     }
 
     private static CatalogField field(String key, String type, List<CatalogField.Option> options, Object dflt) {
-        return new CatalogField(key, "Label", type, false, null, null, options, dflt, null);
+        return new CatalogField(key, "Label", type, false, null, null, options, dflt, null, null);
     }
 
     private static List<CatalogApp> appWith(String handler, CatalogField... fields) {

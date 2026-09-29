@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
 import { ApiError } from "@/lib/api/client";
 import { getTriggerStatus, setWorkflowActive } from "@/lib/api/workflows";
+import { useOptionFor } from "@/components/workflows/canvas/options-field";
 import type { GraphNode, TriggerStatus, Workflow } from "@/lib/types";
 
 // On/off for a workflow whose trigger is an app event (a new GitHub issue...). While on, the
@@ -48,7 +49,10 @@ export function TriggerSwitch({
     }
   }
 
-  const what = describe(trigger);
+  // A channel picked from the list is saved as its id; name it.
+  const channel = useOptionFor(trigger.connectionId, "slack.channels",
+    trigger.appName === "Slack" && typeof trigger.parameters?.channel === "string" ? trigger.parameters.channel : "");
+  const what = describe(trigger, channel?.label);
   return (
     <div className="mt-3 border-t border-border pt-3">
       <div className="flex items-center gap-3">
@@ -128,13 +132,18 @@ function EventsUrl({ url }: { url: string }) {
 }
 
 // "“New Issue” in octo/app", "“New Message in Channel” in #support"
-function describe(trigger: GraphNode) {
+// channelLabel: the channel's name ("#support") when the setting holds its id.
+function describe(trigger: GraphNode, channelLabel?: string) {
   const p = trigger.parameters ?? {};
   const where =
     typeof p.repository === "string" && p.repository
       ? ` in ${p.repository}`
-      : typeof p.channel === "string" && p.channel
-        ? ` in #${p.channel.replace(/^#/, "")}`
-        : "";
+      : channelLabel
+        ? ` in ${channelLabel}`
+        : typeof p.channel === "string" && p.channel
+          ? /^[CG][A-Z0-9]{6,}$/.test(p.channel)
+            ? " in the chosen channel"
+            : ` in #${p.channel.replace(/^#/, "")}`
+          : "";
   return `“${trigger.name ?? "its trigger"}”${where}`;
 }

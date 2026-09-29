@@ -5,6 +5,7 @@ import io.jsonwebtoken.JwtException;
 import com.bxtralabs.pod.connector.connections.ConnectionNeedsReauthException;
 import com.bxtralabs.pod.connector.connections.TokenRefreshException;
 import com.bxtralabs.pod.connector.internal.InternalAuth;
+import com.bxtralabs.pod.connector.options.OptionsException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -44,6 +45,12 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(TokenRefreshException.class)
     public ResponseEntity<Map<String, String>> handleRefresh(TokenRefreshException ex) {
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Map.of("error", ex.getMessage(), "code", "temporary"));
+    }
+
+    // An app couldn't list a step setting's choices (missing permission, app down).
+    @ExceptionHandler(OptionsException.class)
+    public ResponseEntity<Map<String, String>> handleOptions(OptionsException ex) {
+        return ResponseEntity.status(ex.status()).body(Map.of("error", ex.getMessage()));
     }
 
     @ExceptionHandler(NotFoundException.class)

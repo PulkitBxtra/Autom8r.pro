@@ -262,6 +262,7 @@ export function StepPanel({
               sources={sources}
               readOnly={readOnly}
               showMissing={showMissing}
+              connectionId={node.data.connectionId}
               onChange={(parameters) => onChange?.({ parameters })}
             />
           ) : (

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Braces, ChevronLeft, ChevronRight, Eye, EyeOff, Plus, Trash2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AppLogo } from "@/components/ui/app-logo";
+import { OptionLabel, OptionsField } from "@/components/workflows/canvas/options-field";
 import {
   describePath,
   isEmptyValue,
@@ -35,12 +36,15 @@ export function StepConfigForm({
   sources,
   readOnly,
   showMissing,
+  connectionId,
   onChange,
 }: {
   fields: CatalogField[];
   values: Record<string, unknown>;
   sources: DataSource[];
   readOnly: boolean;
+  // The step's account, for settings picked from a list of its things (optionsFrom).
+  connectionId?: string | null;
   // Mark empty required fields (after a save attempt found them).
   showMissing: boolean;
   onChange: (values: Record<string, unknown>) => void;
@@ -79,9 +83,21 @@ export function StepConfigForm({
               {field.required && <span className="ml-0.5 text-red-400">*</span>}
             </p>
             {readOnly ? (
-              <ReadOnlyValue field={field} value={value} />
+              <>
+                <ReadOnlyValue field={field} value={value} />
+                {field.optionsFrom && typeof value === "string" && (
+                  <OptionLabel connectionId={connectionId} source={field.optionsFrom} value={value} />
+                )}
+              </>
             ) : (
-              <FieldInput field={field} value={value} sources={sources} invalid={missing} onChange={(v) => set(field.key, v)} />
+              <FieldInput
+                field={field}
+                value={value}
+                sources={sources}
+                invalid={missing}
+                connectionId={connectionId}
+                onChange={(v) => set(field.key, v)}
+              />
             )}
             {missing && (
               <p className="mt-1.5 text-xs text-red-400">
@@ -102,12 +118,14 @@ function FieldInput({
   value,
   sources,
   invalid,
+  connectionId,
   onChange,
 }: {
   field: CatalogField;
   value: unknown;
   sources: DataSource[];
   invalid: boolean;
+  connectionId?: string | null;
   onChange: (value: unknown) => void;
 }) {
   const id = `field-${field.key}`;
@@ -182,19 +200,27 @@ function FieldInput({
           onChange={(text) => onChange(text.trim() === "" ? undefined : /^-?\d+(\.\d+)?$/.test(text.trim()) ? Number(text) : text)}
         />
       );
-    default:
-      return (
+    default: {
+      const text = typeof value === "string" ? value : value == null ? "" : String(value);
+      const input = (
         <TemplateInput
           id={id}
           multiline={field.type === "textarea"}
           secret={field.secret && field.type === "text"}
-          value={typeof value === "string" ? value : value == null ? "" : String(value)}
+          value={text}
           placeholder={field.placeholder ?? undefined}
           sources={sources}
           invalid={invalid}
-          onChange={(text) => onChange(text === "" ? undefined : text)}
+          onChange={(t) => onChange(t === "" ? undefined : t)}
         />
       );
+      if (!field.optionsFrom) return input;
+      return (
+        <OptionsField connectionId={connectionId} source={field.optionsFrom} value={text} onChange={onChange}>
+          {input}
+        </OptionsField>
+      );
+    }
   }
 }
 
