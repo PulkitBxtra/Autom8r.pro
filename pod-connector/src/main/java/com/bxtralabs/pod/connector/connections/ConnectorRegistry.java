@@ -23,6 +23,8 @@ public class ConnectorRegistry {
     public record Endpoints(String github, String slack, String notion, String stripe, String discord, String trello) {
     }
 
+    public static final String SLACK_SIGNING_SECRET = "signingSecret";
+
     private final Map<String, Connector> connectors = new LinkedHashMap<>();
 
     @Autowired
@@ -66,7 +68,11 @@ public class ConnectorRegistry {
 
         list.add(new Connector("app_slack", "Slack", "Post messages and follow channels",
                 new TokenAuth(List.of(secret("token", "Bot token", "xoxb-…",
-                        "Your Slack app → OAuth & Permissions → Bot User OAuth Token.")),
+                                "Your Slack app → OAuth & Permissions → Bot User OAuth Token."),
+                        // Slack signs its events with the app's signing secret; triggers on a
+                        // connection to the user's own app check events against it.
+                        new CredentialField(SLACK_SIGNING_SECRET, "Signing secret", true, false, "",
+                                "Only needed for Slack triggers: your Slack app → Basic Information → Signing Secret.")),
                         "https://api.slack.com/authentication/token-types#bot",
                         creds -> {
                             Map<String, Object> res = http.post("Slack", api.slack() + "/auth.test",
@@ -78,7 +84,7 @@ public class ConnectorRegistry {
                             String user = string(res, "user");
                             return string(res, "team") + (user != null ? " · @" + user : "");
                         }),
-                null));
+                "slack"));
 
         list.add(new Connector("app_notion", "Notion", "Pages and databases",
                 new TokenAuth(List.of(secret("token", "Internal integration secret", "ntn_…",

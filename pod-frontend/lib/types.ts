@@ -118,6 +118,8 @@ export type TriggerStatus = {
   lastEventAt: number | null;
   appId: string;
   triggerId: string;
+  // Where the user must point their own app's events (Slack with a bot token), else null.
+  eventsUrl: string | null;
 };
 
 // A run is PENDING until pod-processor picks it up, RUNNING while its steps

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Radio } from "lucide-react";
+import { Check, Copy, Radio } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
 import { ApiError } from "@/lib/api/client";
@@ -88,13 +88,53 @@ export function TriggerSwitch({
             : status.error}
         </p>
       )}
+      {active && status?.eventsUrl && <EventsUrl url={status.eventsUrl} />}
       {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
     </div>
   );
 }
 
-// "“New Issue” in octo/app"
+// A connection to the user's own Slack app: Slack sends that app's events wherever its Event
+// Subscriptions point, so they need to point here.
+function EventsUrl({ url }: { url: string }) {
+  const [copied, setCopied] = useState(false);
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Clipboard blocked: the address is selectable, so it can be copied by hand.
+    }
+  }
+
+  return (
+    <div className="mt-2 text-xs text-text-muted">
+      <p>In your Slack app → Event Subscriptions, set the Request URL to:</p>
+      <div className="mt-1 flex items-center gap-1.5">
+        <code className="min-w-0 flex-1 truncate rounded bg-white/5 px-1.5 py-1 font-mono select-all">{url}</code>
+        <button
+          type="button"
+          onClick={copy}
+          aria-label="Copy the Request URL"
+          className="flex size-6 shrink-0 items-center justify-center rounded text-text-muted transition-colors hover:bg-white/10 hover:text-text"
+        >
+          {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// "“New Issue” in octo/app", "“New Message in Channel” in #support"
 function describe(trigger: GraphNode) {
-  const repo = typeof trigger.parameters?.repository === "string" ? ` in ${trigger.parameters.repository}` : "";
-  return `“${trigger.name ?? "its trigger"}”${repo}`;
+  const p = trigger.parameters ?? {};
+  const where =
+    typeof p.repository === "string" && p.repository
+      ? ` in ${p.repository}`
+      : typeof p.channel === "string" && p.channel
+        ? ` in #${p.channel.replace(/^#/, "")}`
+        : "";
+  return `“${trigger.name ?? "its trigger"}”${where}`;
 }

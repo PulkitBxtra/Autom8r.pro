@@ -138,6 +138,7 @@ class ConnectorRegistryTest {
             assertEquals("google", c.oauthProvider());
         }
         assertEquals("github", registry.find("app_github").orElseThrow().oauthProvider(), "GitHub offers both");
+        assertEquals("slack", registry.find("app_slack").orElseThrow().oauthProvider(), "Slack offers both");
     }
 
     @Test
@@ -146,7 +147,8 @@ class ConnectorRegistryTest {
             if (c.token() == null) continue;
             assertFalse(c.token().fields().isEmpty(), c.appId());
             for (CredentialField f : c.token().fields()) {
-                assertTrue(f.required(), c.appId() + "." + f.key());
+                // The Slack signing secret is only needed for triggers.
+                assertEquals(!f.key().equals("signingSecret"), f.required(), c.appId() + "." + f.key());
                 assertNotNull(f.label());
             }
         }

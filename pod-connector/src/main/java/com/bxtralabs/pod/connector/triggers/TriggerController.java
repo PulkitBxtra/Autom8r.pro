@@ -68,4 +68,34 @@ public class TriggerController {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", e.getMessage()));
         }
     }
+
+    // Slack Events API requests for this server's Slack app (its Event Subscriptions Request URL).
+    // Public: authenticated by the signature.
+    @PostMapping("/hooks/slack")
+    public ResponseEntity<Map<String, String>> slack(@RequestHeader(value = "X-Slack-Request-Timestamp", required = false) String timestamp,
+                                                     @RequestHeader(value = "X-Slack-Signature", required = false) String signature,
+                                                     @RequestBody byte[] body) {
+        return slackEvent(null, timestamp, signature, body);
+    }
+
+    // Slack Events API requests for a connection made with the user's own Slack app's bot token.
+    @PostMapping("/hooks/slack/connections/{connectionId}")
+    public ResponseEntity<Map<String, String>> slackOwnApp(@PathVariable String connectionId,
+                                                           @RequestHeader(value = "X-Slack-Request-Timestamp", required = false) String timestamp,
+                                                           @RequestHeader(value = "X-Slack-Signature", required = false) String signature,
+                                                           @RequestBody byte[] body) {
+        return slackEvent(connectionId, timestamp, signature, body);
+    }
+
+    private ResponseEntity<Map<String, String>> slackEvent(String connectionId, String timestamp, String signature, byte[] body) {
+        try {
+            TriggerService.SlackResult result = triggers.onSlackEvent(connectionId, timestamp, signature, body);
+            // The URL check wants the challenge echoed back.
+            return ResponseEntity.ok(result.challenge() != null
+                    ? Map.of("challenge", result.challenge())
+                    : Map.of("result", result.outcome().name().toLowerCase()));
+        } catch (TriggerService.InvalidDeliveryException e) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", e.getMessage()));
+        }
+    }
 }

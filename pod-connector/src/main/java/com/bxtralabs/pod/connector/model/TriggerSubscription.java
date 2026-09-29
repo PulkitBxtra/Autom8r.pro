@@ -12,7 +12,9 @@ import java.util.Map;
 // is saved again while on, removed when it's turned off. secret signs the app's deliveries and is
 // stored encrypted.
 @Entity
-@Table(indexes = @Index(name = "idx_trigger_subscription_workflow", columnList = "workflowId", unique = true))
+@Table(indexes = {
+        @Index(name = "idx_trigger_subscription_workflow", columnList = "workflowId", unique = true),
+        @Index(name = "idx_trigger_subscription_routing", columnList = "appId,routingKey")})
 public class TriggerSubscription {
 
     public static final String STATUS_ACTIVE = "ACTIVE";
@@ -59,6 +61,13 @@ public class TriggerSubscription {
     private String secret;
     // The app's id for what we registered (e.g. the GitHub hook id), to remove it later.
     private String externalId;
+    // For apps that send every event to one address (Slack), what an event is matched on to find
+    // its subscriptions, e.g. the Slack workspace (team) id.
+    private String routingKey;
+    // What registering found out and matching deliveries needs, e.g. Slack's channel and bot ids.
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(columnDefinition = "jsonb")
+    private Map<String, Object> meta;
     @Column(columnDefinition = "text")
     private String lastError;
     private Long lastEventAt;
@@ -85,6 +94,10 @@ public class TriggerSubscription {
     public void setSecret(String secret) { this.secret = secret; }
     public String getExternalId() { return externalId; }
     public void setExternalId(String externalId) { this.externalId = externalId; }
+    public String getRoutingKey() { return routingKey; }
+    public void setRoutingKey(String routingKey) { this.routingKey = routingKey; }
+    public Map<String, Object> getMeta() { return meta; }
+    public void setMeta(Map<String, Object> meta) { this.meta = meta; }
     public String getLastError() { return lastError; }
     public void setLastError(String lastError) { this.lastError = lastError; }
     public Long getLastEventAt() { return lastEventAt; }

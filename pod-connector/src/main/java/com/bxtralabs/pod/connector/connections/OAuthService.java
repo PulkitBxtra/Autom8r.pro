@@ -91,7 +91,7 @@ public class OAuthService {
         Map<String, String> params = new LinkedHashMap<>();
         params.put("response_type", "code");
         params.put("client_id", clientId);
-        params.put("redirect_uri", providers.callbackUrl());
+        params.put("redirect_uri", providers.callbackUrl(provider.id()));
         if (provider.scopes() != null && !provider.scopes().isBlank()) {
             params.put("scope", provider.scopes());
         }
@@ -144,7 +144,7 @@ public class OAuthService {
             Map<String, String> params = new LinkedHashMap<>();
             params.put("grant_type", "authorization_code");
             params.put("code", code);
-            params.put("redirect_uri", providers.callbackUrl());
+            params.put("redirect_uri", providers.callbackUrl(provider.id()));
             if (provider.pkce()) {
                 params.put("code_verifier", cipher.decrypt(s.getCodeVerifier()).get("v"));
             }
@@ -186,17 +186,19 @@ public class OAuthService {
                     ? name + " rejected your OAuth app's client ID or secret (" + error + "). Check them and try again."
                     : name + " rejected this server's OAuth app (" + error + "). Ask the administrator to check it.";
         }
-        if ("redirect_uri_mismatch".equals(error)) {
+        if ("redirect_uri_mismatch".equals(error) || "bad_redirect_uri".equals(error)) {
             return "The callback URL registered in the " + name + " OAuth app doesn't match "
-                    + providers.callbackUrl() + ". Update it there and try again.";
+                    + providers.callbackUrl(provider.id()) + ". Update it there and try again.";
         }
         return name + " didn't complete the sign-in (" + (description != null ? description : error) + "). Start again.";
     }
 
-    // GitHub says incorrect_client_credentials; RFC 6749 providers say invalid_client.
+    // GitHub says incorrect_client_credentials; RFC 6749 providers say invalid_client; Slack says
+    // invalid_client_id or bad_client_secret.
     static boolean isClientCredentialsError(String error) {
         return "invalid_client".equals(error) || "incorrect_client_credentials".equals(error)
-                || "unauthorized_client".equals(error);
+                || "unauthorized_client".equals(error) || "invalid_client_id".equals(error)
+                || "bad_client_secret".equals(error);
     }
 
     // Names the account with the same "who am I" check the app's token form uses, passing the

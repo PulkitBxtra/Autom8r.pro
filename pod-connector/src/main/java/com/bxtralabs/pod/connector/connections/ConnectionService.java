@@ -59,7 +59,7 @@ public class ConnectionService {
                     provider != null,
                     provider != null && provider.configured(),
                     provider == null ? null : provider.setupUrl(),
-                    provider == null ? null : oauthProviders.callbackUrl());
+                    provider == null ? null : oauthProviders.callbackUrl(provider.id()));
         }).toList();
     }
 

@@ -40,12 +40,14 @@ public class OAuthProviders {
 
     private final Map<String, Provider> providers = new LinkedHashMap<>();
     private final String callbackUrl;
+    // Providers whose callback is somewhere else than <public-url>/oauth/callback (see Slack).
+    private final Map<String, String> callbackOverrides = new LinkedHashMap<>();
 
     // Without Notion's server app (tests that only care about GitHub/Google).
     public OAuthProviders(String githubOauthBase, String githubClientId, String githubClientSecret, String githubScopes,
                           String googleClientId, String googleClientSecret, String publicUrl) {
         this(githubOauthBase, githubClientId, githubClientSecret, githubScopes, googleClientId, googleClientSecret,
-                "https://api.notion.com/v1", "", "", publicUrl);
+                "https://api.notion.com/v1", "", "", "https://slack.com", "", "", "", "", publicUrl);
     }
 
     @Autowired
@@ -58,6 +60,11 @@ public class OAuthProviders {
                           @Value("${connectors.notion.oauth-base:https://api.notion.com/v1}") String notionOauthBase,
                           @Value("${connectors.notion.oauth.client-id:}") String notionClientId,
                           @Value("${connectors.notion.oauth.client-secret:}") String notionClientSecret,
+                          @Value("${connectors.slack.oauth-base:https://slack.com}") String slackOauthBase,
+                          @Value("${connectors.slack.oauth.client-id:}") String slackClientId,
+                          @Value("${connectors.slack.oauth.client-secret:}") String slackClientSecret,
+                          @Value("${connectors.slack.oauth.scopes:}") String slackScopes,
+                          @Value("${connectors.slack.oauth.callback-url:}") String slackCallbackUrl,
                           @Value("${app.public-url:http://localhost:8084}") String publicUrl) {
         // Every provider sends the browser back here, for the server's app and users' own apps
         // alike (the state says which sign-in it is). Must match what's registered exactly.
@@ -87,7 +94,28 @@ public class OAuthProviders {
                 Map.of("owner", "user"),
                 "https://www.notion.so/profile/integrations",
                 TokenStyle.BASIC_JSON, false));
+        // A Slack app installed as a bot: comma-separated bot scopes, token from oauth.v2.access
+        // (which answers 200 with ok=false and an error on failure). Bot tokens don't expire
+        // unless the app turns on token rotation, so there's nothing to refresh.
+        String slack = slackOauthBase.replaceAll("/+$", "");
+        register(new Provider("slack", "Slack",
+                slack + "/oauth/v2/authorize",
+                slack + "/api/oauth.v2.access",
+                slackScopes == null || slackScopes.isBlank() ? SLACK_SCOPES : slackScopes,
+                slackClientId, slackClientSecret, Map.of(),
+                "https://api.slack.com/apps",
+                TokenStyle.FORM, false));
+        // Slack only accepts https callbacks, so locally (http://localhost) its sign-in comes back
+        // through a tunnel to this pod instead: https://<tunnel>/oauth/callback.
+        if (slackCallbackUrl != null && !slackCallbackUrl.isBlank()) {
+            callbackOverrides.put("slack", slackCallbackUrl.trim());
+        }
     }
+
+    // What Slack steps and triggers need: post and DM, find channels and users, and receive
+    // channel messages and mentions.
+    public static final String SLACK_SCOPES =
+            "chat:write,channels:read,channels:history,app_mentions:read,im:write,users:read";
 
     private void register(Provider provider) {
         providers.put(provider.id(), provider);
@@ -104,5 +132,10 @@ public class OAuthProviders {
 
     public String callbackUrl() {
         return callbackUrl;
+    }
+
+    // Where this provider sends the browser back after sign-in.
+    public String callbackUrl(String providerId) {
+        return callbackOverrides.getOrDefault(providerId, callbackUrl);
     }
 }

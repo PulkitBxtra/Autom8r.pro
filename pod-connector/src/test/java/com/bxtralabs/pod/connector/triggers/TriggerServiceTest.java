@@ -30,7 +30,9 @@ class TriggerServiceTest {
     private final ConnectionRepository connections = mock(ConnectionRepository.class);
     private final TokenService tokens = mock(TokenService.class);
     private final GitHubTriggers github = mock(GitHubTriggers.class);
+    private final SlackTriggers slack = mock(SlackTriggers.class);
     private final RunStarter runs = mock(RunStarter.class);
+    private static final String SLACK_SERVER_SECRET = "server-signing-secret";
     private final Map<String, TriggerSubscription> db = new LinkedHashMap<>();
     private final Set<String> seenDeliveries = new HashSet<>();
     private CredentialCipher cipher;
@@ -67,7 +69,8 @@ class TriggerServiceTest {
     }
 
     private TriggerService service(String publicUrl) {
-        return new TriggerService(subs, deliveries, connections, tokens, cipher, List.of(github), github, runs, json, publicUrl);
+        return new TriggerService(subs, deliveries, connections, tokens, cipher, List.of(github, slack), github, slack, runs, json,
+                publicUrl, SLACK_SERVER_SECRET);
     }
 
     private TriggerService.Status subscribe(String repo) {
@@ -175,5 +178,100 @@ class TriggerServiceTest {
         when(runs.start(any(), any())).thenThrow(new IllegalStateException("pod-webhooks down"));
         assertThrows(IllegalStateException.class, () -> service.onGitHubDelivery(s.getId(), sign(secret, body), "issues", "d-3", body));
         assertFalse(seenDeliveries.contains("github:d-3"), "forgotten, so GitHub's retry can start it");
+    }
+
+    // ---- Slack events ----
+
+    private static String slackSign(String secret, long ts, byte[] body) throws Exception {
+        Mac mac = Mac.getInstance("HmacSHA256");
+        mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+        mac.update(("v0:" + ts + ":").getBytes(StandardCharsets.UTF_8));
+        return "v0=" + HexFormat.of().formatHex(mac.doFinal(body));
+    }
+
+    private TriggerSubscription slackSubscription(String id, String workflowId, String connectionId, String team, String via) {
+        TriggerSubscription s = new TriggerSubscription();
+        s.setId(id);
+        s.setWorkflowId(workflowId);
+        s.setUserId("usr_1");
+        s.setAppId("app_slack");
+        s.setTriggerId(SlackTriggers.NEW_MENTION);
+        s.setConnectionId(connectionId);
+        s.setStatus(TriggerSubscription.STATUS_ACTIVE);
+        s.setRoutingKey(team);
+        s.setMeta(Map.of("via", via));
+        db.put(id, s);
+        return s;
+    }
+
+    private TriggerService.SlackResult slackEvent(String connectionId, String secret, String payload) throws Exception {
+        long ts = System.currentTimeMillis() / 1000;
+        byte[] body = payload.getBytes(StandardCharsets.UTF_8);
+        return service.onSlackEvent(connectionId, String.valueOf(ts), slackSign(secret, ts, body), body);
+    }
+
+    private static final String MENTION = "{\"type\":\"event_callback\",\"team_id\":\"T1\",\"event_id\":\"Ev1\","
+            + "\"event\":{\"type\":\"app_mention\",\"text\":\"hi\"}}";
+
+    @BeforeEach
+    void slackSubscriptions() {
+        when(subs.findByAppIdAndRoutingKeyAndStatus(eq("app_slack"), any(), eq("ACTIVE"))).thenAnswer(inv -> db.values().stream()
+                .filter(s -> s.getAppId().equals("app_slack") && inv.getArgument(1).equals(s.getRoutingKey())).toList());
+        when(subs.findByConnectionIdAndStatus(any(), eq("ACTIVE"))).thenAnswer(inv -> db.values().stream()
+                .filter(s -> inv.getArgument(0).equals(s.getConnectionId())).toList());
+        when(slack.toTriggerBody(any(), any())).thenReturn(Optional.of(Map.of("text", "hi")));
+    }
+
+    @Test
+    void slacksUrlCheckGetsItsChallengeBack() throws Exception {
+        TriggerService.SlackResult r = slackEvent(null, SLACK_SERVER_SECRET, "{\"type\":\"url_verification\",\"challenge\":\"abc\"}");
+        assertEquals("abc", r.challenge());
+        assertThrows(TriggerService.InvalidDeliveryException.class,
+                () -> slackEvent(null, "guess", "{\"type\":\"url_verification\",\"challenge\":\"abc\"}"));
+    }
+
+    @Test
+    void anEventForTheServersAppStartsEveryMatchingWorkflowInThatWorkspaceOnce() throws Exception {
+        slackSubscription("tsub_a", "wfl_a", "con_a", "T1", "server");
+        slackSubscription("tsub_b", "wfl_b", "con_b", "T1", "server");
+        slackSubscription("tsub_other", "wfl_other", "con_c", "T2", "server");
+        slackSubscription("tsub_own", "wfl_own", "con_d", "T1", "own");
+
+        assertEquals(TriggerService.Outcome.STARTED, slackEvent(null, SLACK_SERVER_SECRET, MENTION).outcome());
+        verify(runs).start("wfl_a", Map.of("text", "hi"));
+        verify(runs).start("wfl_b", Map.of("text", "hi"));
+        verify(runs, times(2)).start(any(), any());
+
+        assertEquals(TriggerService.Outcome.DUPLICATE, slackEvent(null, SLACK_SERVER_SECRET, MENTION).outcome(),
+                "Slack retrying the event starts nothing again");
+        verify(runs, times(2)).start(any(), any());
+    }
+
+    @Test
+    void anEventForAUsersOwnAppIsCheckedWithTheConnectionsSigningSecret() throws Exception {
+        Connection own = new Connection();
+        own.setId("con_own");
+        own.setAppId("app_slack");
+        own.setAuthType(Connection.AUTH_TOKEN);
+        own.setCredentials(cipher.encrypt(Map.of("token", "xoxb-own", "signingSecret", "own-secret")));
+        when(connections.findById("con_own")).thenReturn(Optional.of(own));
+        slackSubscription("tsub_own", "wfl_own", "con_own", "T1", "own");
+
+        assertThrows(TriggerService.InvalidDeliveryException.class, () -> slackEvent("con_own", SLACK_SERVER_SECRET, MENTION));
+        assertEquals(TriggerService.Outcome.STARTED, slackEvent("con_own", "own-secret", MENTION).outcome());
+        verify(runs).start("wfl_own", Map.of("text", "hi"));
+        assertThrows(NotFoundException.class, () -> slackEvent("con_1", "own-secret", MENTION), "not a Slack connection");
+    }
+
+    @Test
+    void ifOneWorkflowCantStartSlackRetriesAndOnlyThatOneStartsAgain() throws Exception {
+        slackSubscription("tsub_a", "wfl_a", "con_a", "T1", "server");
+        slackSubscription("tsub_b", "wfl_b", "con_b", "T1", "server");
+        when(runs.start(eq("wfl_b"), any())).thenThrow(new IllegalStateException("pod-webhooks down")).thenReturn("exn_1");
+
+        assertThrows(IllegalStateException.class, () -> slackEvent(null, SLACK_SERVER_SECRET, MENTION));
+        assertEquals(TriggerService.Outcome.STARTED, slackEvent(null, SLACK_SERVER_SECRET, MENTION).outcome());
+        verify(runs, times(1)).start(eq("wfl_a"), any());
+        verify(runs, times(2)).start(eq("wfl_b"), any());
     }
 }

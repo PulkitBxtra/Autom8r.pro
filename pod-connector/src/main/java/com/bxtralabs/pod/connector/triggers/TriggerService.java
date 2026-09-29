@@ -1,6 +1,7 @@
 package com.bxtralabs.pod.connector.triggers;
 
 import com.bxtralabs.pod.connector.common.NotFoundException;
+import com.bxtralabs.pod.connector.connections.ConnectorRegistry;
 import com.bxtralabs.pod.connector.connections.CredentialCipher;
 import com.bxtralabs.pod.connector.connections.TokenService;
 import com.bxtralabs.pod.connector.model.Connection;
@@ -26,7 +27,8 @@ import java.util.*;
 @Service
 public class TriggerService {
 
-    public record Status(String status, String error, Long lastEventAt, String appId, String triggerId) {
+    // eventsUrl: where the user must point their own app's events (Slack with a bot token), else null.
+    public record Status(String status, String error, Long lastEventAt, String appId, String triggerId, String eventsUrl) {
     }
 
     private final TriggerSubscriptionRepository subscriptions;
@@ -36,15 +38,18 @@ public class TriggerService {
     private final CredentialCipher cipher;
     private final List<AppTriggerRegistrar> registrars;
     private final GitHubTriggers github;
+    private final SlackTriggers slack;
     private final RunStarter runs;
     private final JsonMapper jsonMapper;
     private final String publicUrl;
+    private final String slackSigningSecret;
     private final SecureRandom random = new SecureRandom();
 
     public TriggerService(TriggerSubscriptionRepository subscriptions, TriggerDeliveryRepository deliveries,
                           ConnectionRepository connections, TokenService tokens, CredentialCipher cipher,
-                          List<AppTriggerRegistrar> registrars, GitHubTriggers github, RunStarter runs, JsonMapper jsonMapper,
-                          @Value("${triggers.public-url:}") String publicUrl) {
+                          List<AppTriggerRegistrar> registrars, GitHubTriggers github, SlackTriggers slack, RunStarter runs,
+                          JsonMapper jsonMapper, @Value("${triggers.public-url:}") String publicUrl,
+                          @Value("${connectors.slack.signing-secret:}") String slackSigningSecret) {
         this.subscriptions = subscriptions;
         this.deliveries = deliveries;
         this.connections = connections;
@@ -52,9 +57,11 @@ public class TriggerService {
         this.cipher = cipher;
         this.registrars = registrars;
         this.github = github;
+        this.slack = slack;
         this.runs = runs;
         this.jsonMapper = jsonMapper;
         this.publicUrl = publicUrl == null ? "" : publicUrl.trim().replaceAll("/+$", "");
+        this.slackSigningSecret = slackSigningSecret == null ? "" : slackSigningSecret.trim();
     }
 
     // Registers the workflow's trigger with its app (replacing what was registered before, unless
@@ -136,7 +143,9 @@ public class TriggerService {
     }
 
     private static Status status(TriggerSubscription s) {
-        return new Status(s.getStatus(), s.getLastError(), s.getLastEventAt(), s.getAppId(), s.getTriggerId());
+        Object eventsUrl = s.getMeta() == null ? null : s.getMeta().get("eventsUrl");
+        return new Status(s.getStatus(), s.getLastError(), s.getLastEventAt(), s.getAppId(), s.getTriggerId(),
+                eventsUrl == null ? null : String.valueOf(eventsUrl));
     }
 
     // ---- deliveries ----
@@ -173,6 +182,86 @@ public class TriggerService {
         s.setLastEventAt(System.currentTimeMillis());
         subscriptions.save(s);
         return Outcome.STARTED;
+    }
+
+    // What Slack gets back: the challenge for its URL check, or the outcome of an event.
+    public record SlackResult(String challenge, Outcome outcome) {
+    }
+
+    // A Slack Events API request. connectionId null: this server's Slack app (/hooks/slack), whose
+    // events are matched by workspace; else a connection's own app, matched by connection. Rejects
+    // anything not signed with that app's signing secret within the last 5 minutes.
+    public SlackResult onSlackEvent(String connectionId, String timestamp, String signature, byte[] body) {
+        String signingSecret;
+        if (connectionId == null) {
+            signingSecret = slackSigningSecret;
+        } else {
+            Connection c = connections.findById(connectionId)
+                    .filter(found -> "app_slack".equals(found.getAppId()) && Connection.AUTH_TOKEN.equals(found.getAuthType()))
+                    .orElseThrow(() -> new NotFoundException("No such Slack connection"));
+            signingSecret = cipher.decrypt(c.getCredentials()).get(ConnectorRegistry.SLACK_SIGNING_SECRET);
+        }
+        if (!validSlackSignature(signingSecret, timestamp, body, signature, System.currentTimeMillis())) {
+            throw new InvalidDeliveryException();
+        }
+        Map<?, ?> payload = jsonMapper.readValue(body, Map.class);
+        if ("url_verification".equals(payload.get("type"))) {
+            return new SlackResult(String.valueOf(payload.get("challenge")), Outcome.IGNORED);
+        }
+        if (!"event_callback".equals(payload.get("type")) || !(payload.get("event") instanceof Map<?, ?> event)) {
+            return new SlackResult(null, Outcome.IGNORED);
+        }
+        List<TriggerSubscription> candidates = connectionId == null
+                ? subscriptions.findByAppIdAndRoutingKeyAndStatus("app_slack", String.valueOf(payload.get("team_id")),
+                        TriggerSubscription.STATUS_ACTIVE).stream()
+                        .filter(s -> s.getMeta() != null && SlackTriggers.VIA_SERVER.equals(s.getMeta().get("via"))).toList()
+                : subscriptions.findByConnectionIdAndStatus(connectionId, TriggerSubscription.STATUS_ACTIVE);
+        String eventId = String.valueOf(payload.get("event_id"));
+        Outcome outcome = Outcome.IGNORED;
+        RuntimeException failure = null;
+        for (TriggerSubscription s : candidates) {
+            Optional<Map<String, Object>> triggerBody = slack.toTriggerBody(s, event);
+            if (triggerBody.isEmpty()) continue;
+            String key = "slack:" + eventId + ":" + s.getId();
+            if (deliveries.recordNew(key, s.getId(), System.currentTimeMillis()) == 0) {
+                if (outcome == Outcome.IGNORED) outcome = Outcome.DUPLICATE;
+                continue;
+            }
+            try {
+                runs.start(s.getWorkflowId(), triggerBody.get());
+            } catch (RuntimeException e) {
+                // Let Slack retry it: forget we saw it. The others that started stay recorded.
+                deliveries.deleteById(key);
+                failure = e;
+                continue;
+            }
+            s.setLastEventAt(System.currentTimeMillis());
+            subscriptions.save(s);
+            outcome = Outcome.STARTED;
+        }
+        if (failure != null) {
+            throw failure;
+        }
+        return new SlackResult(null, outcome);
+    }
+
+    // X-Slack-Signature: "v0=" + hex(HMAC-SHA256(signing secret, "v0:" + timestamp + ":" + raw body)),
+    // with X-Slack-Request-Timestamp within 5 minutes (so a captured request can't be replayed later).
+    static boolean validSlackSignature(String secret, String timestamp, byte[] body, String header, long nowMs) {
+        if (secret == null || secret.isBlank() || timestamp == null || header == null || !header.startsWith("v0=")) {
+            return false;
+        }
+        try {
+            long ts = Long.parseLong(timestamp.trim());
+            if (Math.abs(nowMs / 1000 - ts) > 300) return false;
+            Mac mac = Mac.getInstance("HmacSHA256");
+            mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+            mac.update(("v0:" + ts + ":").getBytes(StandardCharsets.UTF_8));
+            String expected = "v0=" + HexFormat.of().formatHex(mac.doFinal(body));
+            return MessageDigest.isEqual(expected.getBytes(StandardCharsets.UTF_8), header.getBytes(StandardCharsets.UTF_8));
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     // X-Hub-Signature-256: "sha256=" + hex(HMAC-SHA256(secret, raw body)), compared in constant time.

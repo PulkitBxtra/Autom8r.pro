@@ -160,7 +160,10 @@ export function CredentialsForm({
         <div className="space-y-4">
           {fields.map((f, i) => (
             <div key={f.key}>
-              <Label htmlFor={`cred-${f.key}`}>{f.label}</Label>
+              <Label htmlFor={`cred-${f.key}`}>
+                {f.label}
+                {!f.required && <span className="font-normal text-text-muted"> (optional)</span>}
+              </Label>
               <div className="relative">
                 <Input
                   id={`cred-${f.key}`}
