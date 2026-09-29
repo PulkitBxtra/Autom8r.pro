@@ -29,9 +29,11 @@ export default function AppShellLayout({
 
   return (
     <CatalogProvider>
-      <div className="flex min-h-screen bg-surface">
+      {/* Window-high: long pages scroll inside the content column, and the workflow editor's
+          canvas and step drawer fit the window, with the drawer scrolling on its own. */}
+      <div className="flex h-dvh overflow-hidden bg-surface">
         <Sidebar />
-        <div className="flex min-w-0 flex-1 flex-col">{children}</div>
+        <div className="flex min-w-0 flex-1 flex-col overflow-y-auto">{children}</div>
       </div>
     </CatalogProvider>
   );
