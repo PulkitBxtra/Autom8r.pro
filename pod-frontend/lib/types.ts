@@ -30,11 +30,25 @@ export type CatalogField = {
   secret: boolean;
 };
 
+// One piece of data a trigger starts with or an action returns, offered in the data picker.
+// object: fields = what it holds; list: fields = what each item holds (none for plain values);
+// any: whatever the other side sent.
+export type OutputType = "text" | "number" | "boolean" | "datetime" | "object" | "list" | "any";
+
+export type CatalogOutput = {
+  key: string;
+  label: string;
+  type: OutputType;
+  fields: CatalogOutput[];
+};
+
 export type AppTrigger = {
   id: string;
   name: string;
   description: string | null;
   fields: CatalogField[];
+  // trigger.body; empty when it's whatever arrives (Webhook).
+  outputs: CatalogOutput[];
 };
 
 export type AppAction = {
@@ -44,6 +58,8 @@ export type AppAction = {
   // pod-processor handler that runs it; saved as the step's type.
   handler: string;
   fields: CatalogField[];
+  // steps.<id>.output; empty when not declared.
+  outputs: CatalogOutput[];
 };
 
 export type App = {

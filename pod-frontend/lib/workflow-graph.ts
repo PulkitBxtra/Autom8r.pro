@@ -163,6 +163,7 @@ export function upstreamSources(
       appId: n.data.app?.id,
       appName: n.data.app?.name ?? "",
       path: n.data.kind === "trigger" ? "trigger.body" : `steps.${n.id}.output`,
+      outputs: n.data.item!.outputs ?? [],
     }));
 }
 
@@ -275,7 +276,7 @@ function resolveNodeItem(node: GraphNode, catalog: Catalog): { app: App; item: A
     const found = catalog.findTrigger(node.itemId);
     return found
       ? { app: found.app, item: found.trigger }
-      : { app: fallbackApp, item: { id: node.itemId, name, description: null, fields: [] } };
+      : { app: fallbackApp, item: { id: node.itemId, name, description: null, fields: [], outputs: [] } };
   }
 
   const found = catalog.findAction(node.itemId);
@@ -283,7 +284,7 @@ function resolveNodeItem(node: GraphNode, catalog: Catalog): { app: App; item: A
     ? { app: found.app, item: found.action }
     : {
         app: fallbackApp,
-        item: { id: node.itemId, name, description: null, handler: node.type ?? "action", fields: [] },
+        item: { id: node.itemId, name, description: null, handler: node.type ?? "action", fields: [], outputs: [] },
       };
 }
 
@@ -347,6 +348,7 @@ function buildLegacyGraph(workflow: Workflow, catalog: Catalog): {
     name: "Custom trigger",
     description: null,
     fields: [],
+    outputs: [],
   };
 
   const nodes: WorkflowNode[] = [
@@ -373,6 +375,7 @@ function buildLegacyGraph(workflow: Workflow, catalog: Catalog): {
       description: null,
       handler: action.type,
       fields: [],
+      outputs: [],
     };
 
     nodes.push({

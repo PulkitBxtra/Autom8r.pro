@@ -40,6 +40,10 @@
               "help": "JSON is sent as application/json unless you set a Content-Type header; plain text is sent as-is." },
             { "key": "timeoutSeconds", "label": "Timeout (seconds)", "type": "number", "defaultValue": 30,
               "help": "At most 120." }
+          ],
+          "outputs": [
+            { "key": "status", "label": "Status code", "type": "number" },
+            { "key": "body", "label": "Response body", "type": "any" }
           ]
         }
       ]
@@ -57,6 +61,9 @@
           "handler": "logic.switch",
           "fields": [
             { "key": "paths", "label": "Paths", "type": "paths", "required": true, "defaultValue": [ { "id": "p_a", "name": "Path A", "match": "all", "conditions": [ { "left": "", "op": "equals", "right": "" } ] } ] }
+          ],
+          "outputs": [
+            { "key": "matched", "label": "Path taken", "type": "list" }
           ]
         },
         {
@@ -66,6 +73,9 @@
           "handler": "logic.paths",
           "fields": [
             { "key": "paths", "label": "Paths", "type": "paths", "required": true, "defaultValue": [ { "id": "p_a", "name": "Path A", "match": "all", "conditions": [ { "left": "", "op": "equals", "right": "" } ] } ] }
+          ],
+          "outputs": [
+            { "key": "matched", "label": "Paths taken", "type": "list" }
           ]
         },
         {
@@ -75,6 +85,9 @@
           "handler": "logic.if_else",
           "fields": [
             { "key": "conditions", "label": "If", "type": "conditions", "required": true, "defaultValue": { "match": "all", "conditions": [ { "left": "", "op": "equals", "right": "" } ] } }
+          ],
+          "outputs": [
+            { "key": "matched", "label": "Branch taken", "type": "list" }
           ]
         },
         {
@@ -84,6 +97,9 @@
           "handler": "logic.filter",
           "fields": [
             { "key": "conditions", "label": "Continue only if", "type": "conditions", "required": true, "defaultValue": { "match": "all", "conditions": [ { "left": "", "op": "equals", "right": "" } ] } }
+          ],
+          "outputs": [
+            { "key": "matched", "label": "Continued", "type": "list" }
           ]
         }
       ]
@@ -159,13 +175,32 @@
           "description": "A message is posted in a channel.",
           "fields": [
             { "key": "channel", "label": "Channel", "type": "text", "required": true, "placeholder": "#general" }
+          ],
+          "outputs": [
+            { "key": "text", "label": "Message text", "type": "text" },
+            { "key": "user", "label": "Posted by (user ID)", "type": "text" },
+            { "key": "channel", "label": "Channel ID", "type": "text" },
+            { "key": "channelName", "label": "Channel name", "type": "text" },
+            { "key": "ts", "label": "Message timestamp", "type": "text" },
+            { "key": "threadTs", "label": "Thread timestamp", "type": "text" },
+            { "key": "team", "label": "Workspace", "type": "text" },
+            { "key": "files", "label": "Attached file names", "type": "list" }
           ]
         },
         {
           "id": "trg_slack_new_mention",
           "name": "New Mention",
           "description": "The connected user or bot is mentioned.",
-          "fields": []
+          "fields": [],
+          "outputs": [
+            { "key": "text", "label": "Message text", "type": "text" },
+            { "key": "user", "label": "Posted by (user ID)", "type": "text" },
+            { "key": "channel", "label": "Channel ID", "type": "text" },
+            { "key": "ts", "label": "Message timestamp", "type": "text" },
+            { "key": "threadTs", "label": "Thread timestamp", "type": "text" },
+            { "key": "team", "label": "Workspace", "type": "text" },
+            { "key": "files", "label": "Attached file names", "type": "list" }
+          ]
         }
       ],
       "actions": [
@@ -179,6 +214,11 @@
             { "key": "text", "label": "Message", "type": "textarea", "required": true },
             { "key": "threadTs", "label": "Reply in thread", "type": "text",
               "help": "Timestamp of the message to reply to. Leave empty to post a new message." }
+          ],
+          "outputs": [
+            { "key": "channel", "label": "Channel ID", "type": "text" },
+            { "key": "ts", "label": "Message timestamp", "type": "text" },
+            { "key": "text", "label": "Message text", "type": "text" }
           ]
         },
         {
@@ -189,6 +229,11 @@
           "fields": [
             { "key": "user", "label": "User", "type": "text", "required": true, "placeholder": "U012AB3CD or name@example.com" },
             { "key": "text", "label": "Message", "type": "textarea", "required": true }
+          ],
+          "outputs": [
+            { "key": "channel", "label": "DM channel ID", "type": "text" },
+            { "key": "ts", "label": "Message timestamp", "type": "text" },
+            { "key": "user", "label": "Recipient (user ID)", "type": "text" }
           ]
         }
       ]
@@ -262,6 +307,16 @@
           "description": "An issue is opened in a repository.",
           "fields": [
             { "key": "repository", "label": "Repository", "type": "text", "required": true, "placeholder": "owner/repo" }
+          ],
+          "outputs": [
+            { "key": "repository", "label": "Repository", "type": "text" },
+            { "key": "number", "label": "Number", "type": "number" },
+            { "key": "title", "label": "Title", "type": "text" },
+            { "key": "body", "label": "Description", "type": "text" },
+            { "key": "url", "label": "URL", "type": "text" },
+            { "key": "author", "label": "Author (GitHub login)", "type": "text" },
+            { "key": "labels", "label": "Labels", "type": "list" },
+            { "key": "createdAt", "label": "Opened at", "type": "datetime" }
           ]
         },
         {
@@ -270,6 +325,19 @@
           "description": "A pull request is opened in a repository.",
           "fields": [
             { "key": "repository", "label": "Repository", "type": "text", "required": true, "placeholder": "owner/repo" }
+          ],
+          "outputs": [
+            { "key": "repository", "label": "Repository", "type": "text" },
+            { "key": "number", "label": "Number", "type": "number" },
+            { "key": "title", "label": "Title", "type": "text" },
+            { "key": "body", "label": "Description", "type": "text" },
+            { "key": "url", "label": "URL", "type": "text" },
+            { "key": "author", "label": "Author (GitHub login)", "type": "text" },
+            { "key": "labels", "label": "Labels", "type": "list" },
+            { "key": "branch", "label": "Branch", "type": "text" },
+            { "key": "baseBranch", "label": "Base branch", "type": "text" },
+            { "key": "draft", "label": "Draft", "type": "boolean" },
+            { "key": "createdAt", "label": "Opened at", "type": "datetime" }
           ]
         }
       ],
@@ -285,6 +353,14 @@
             { "key": "body", "label": "Body", "type": "textarea", "help": "Markdown is supported." },
             { "key": "labels", "label": "Labels", "type": "text", "placeholder": "bug, triage",
               "help": "Comma-separated. Labels that don't exist yet are created." }
+          ],
+          "outputs": [
+            { "key": "number", "label": "Issue number", "type": "number" },
+            { "key": "url", "label": "Issue URL", "type": "text" },
+            { "key": "id", "label": "Issue ID", "type": "number" },
+            { "key": "title", "label": "Title", "type": "text" },
+            { "key": "state", "label": "State", "type": "text" },
+            { "key": "labels", "label": "Labels", "type": "list" }
           ]
         },
         {
@@ -296,6 +372,11 @@
             { "key": "repository", "label": "Repository", "type": "text", "required": true, "placeholder": "owner/repo" },
             { "key": "issueNumber", "label": "Issue or PR number", "type": "number", "required": true },
             { "key": "body", "label": "Comment", "type": "textarea", "required": true, "help": "Markdown is supported." }
+          ],
+          "outputs": [
+            { "key": "id", "label": "Comment ID", "type": "number" },
+            { "key": "url", "label": "Comment URL", "type": "text" },
+            { "key": "issueNumber", "label": "Issue number", "type": "number" }
           ]
         }
       ]
@@ -335,6 +416,11 @@
             { "key": "properties", "label": "Properties", "type": "json",
               "help": "Database properties in Notion's format, e.g. {\"Status\": {\"select\": {\"name\": \"Done\"}}}." },
             { "key": "content", "label": "Content", "type": "textarea" }
+          ],
+          "outputs": [
+            { "key": "id", "label": "Page ID", "type": "text" },
+            { "key": "url", "label": "Page URL", "type": "text" },
+            { "key": "parent", "label": "Created in (database or page)", "type": "text" }
           ]
         },
         {
@@ -346,6 +432,11 @@
             { "key": "pageId", "label": "Page ID", "type": "text", "required": true },
             { "key": "properties", "label": "Properties", "type": "json", "required": true,
               "help": "Properties to change, in Notion's format." }
+          ],
+          "outputs": [
+            { "key": "id", "label": "Page ID", "type": "text" },
+            { "key": "url", "label": "Page URL", "type": "text" },
+            { "key": "lastEditedTime", "label": "Last edited at", "type": "datetime" }
           ]
         }
       ]

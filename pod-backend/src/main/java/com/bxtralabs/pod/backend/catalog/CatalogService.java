@@ -77,10 +77,12 @@ public class CatalogService {
             }
             for (CatalogApp.Trigger t : nonNull(app.triggers())) {
                 addItem(app, t.id(), t.name(), t.fields());
+                checkOutputs(t.id(), t.outputs());
                 triggers.put(t.id(), t);
             }
             for (CatalogApp.Action a : nonNull(app.actions())) {
                 addItem(app, a.id(), a.name(), a.fields());
+                checkOutputs(a.id(), a.outputs());
                 require(a.handler(), "action " + a.id() + " without a handler");
                 actions.put(a.id(), a);
             }
@@ -117,6 +119,27 @@ public class CatalogService {
                     && f.options().stream().noneMatch(o -> o.value().equals(f.defaultValue()))) {
                 throw invalid("has select " + where + " whose default isn't one of its options");
             }
+        }
+    }
+
+    private static void checkOutputs(String where, List<CatalogOutput> outputs) {
+        Set<String> keys = new HashSet<>();
+        for (CatalogOutput o : outputs) {
+            String at = where + " output " + o.key();
+            if (o.key() == null || !KEY.matcher(o.key()).matches()) {
+                throw invalid("has an output of " + where + " with a bad key: " + o.key());
+            }
+            if (!keys.add(o.key())) {
+                throw invalid("has " + at + " twice");
+            }
+            require(o.label(), at + " without a label");
+            if (!CatalogOutput.TYPES.contains(o.type())) {
+                throw invalid("has " + at + " of unknown type " + o.type());
+            }
+            if (!o.fields().isEmpty() && !"object".equals(o.type()) && !"list".equals(o.type())) {
+                throw invalid("has fields on " + at + ", which only object and list outputs can have");
+            }
+            checkOutputs(where + " output " + o.key(), o.fields());
         }
     }
 

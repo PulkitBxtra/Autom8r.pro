@@ -25,10 +25,20 @@ public record CatalogApp(
     public static final String CONNECTION_OPTIONAL = "optional";
     public static final String CONNECTION_REQUIRED = "required";
 
-    public record Trigger(String id, String name, String description, List<CatalogField> fields) {
+    // outputs: the data it starts a run with (trigger.body), empty when that's whatever arrives.
+    public record Trigger(String id, String name, String description, List<CatalogField> fields,
+                          List<CatalogOutput> outputs) {
+        public Trigger {
+            outputs = outputs == null ? List.of() : List.copyOf(outputs);
+        }
     }
 
     // handler: which pod-processor handler runs it; saved as the step's GraphNode.type.
-    public record Action(String id, String name, String description, String handler, List<CatalogField> fields) {
+    // outputs: what it returns (steps.<id>.output), empty when not declared.
+    public record Action(String id, String name, String description, String handler, List<CatalogField> fields,
+                         List<CatalogOutput> outputs) {
+        public Action {
+            outputs = outputs == null ? List.of() : List.copyOf(outputs);
+        }
     }
 }

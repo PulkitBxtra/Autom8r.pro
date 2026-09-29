@@ -56,13 +56,48 @@ class CatalogServiceTest {
         }
     }
 
+    // Everything that runs for real lists what it returns, so the data picker can offer it.
+    @Test
+    void realTriggersAndActionsDeclareTheirOutputs() throws Exception {
+        CatalogService catalog = real();
+        Stream.of("trg_github_new_issue", "trg_github_new_pr", "trg_slack_new_message", "trg_slack_new_mention")
+                .forEach(id -> assertFalse(catalog.trigger(id).orElseThrow().outputs().isEmpty(), id));
+        Stream.of("act_http_request", "act_github_create_issue", "act_github_comment", "act_slack_post", "act_slack_dm",
+                        "act_notion_create_page", "act_notion_update_page", "act_logic_switch", "act_logic_paths",
+                        "act_logic_if_else", "act_logic_filter")
+                .forEach(id -> assertFalse(catalog.action(id).orElseThrow().outputs().isEmpty(), id));
+        assertTrue(catalog.trigger("trg_webhook_catch").orElseThrow().outputs().isEmpty(),
+                "a webhook starts with whatever its caller sends");
+        assertEquals(List.of("number", "url", "id", "title", "state", "labels"), catalog.action("act_github_create_issue")
+                .orElseThrow().outputs().stream().map(CatalogOutput::key).toList(), "what GitHubHandler returns");
+    }
+
+    private static List<CatalogApp> appWithOutputs(CatalogOutput... outputs) {
+        return List.of(new CatalogApp("app_x", "X", null, null, List.of(),
+                List.of(new CatalogApp.Action("act_x", "Do X", null, "h", List.of(), List.of(outputs)))));
+    }
+
+    @Test
+    void brokenOutputsAreRejectedAtStartup() {
+        assertInvalid(appWithOutputs(new CatalogOutput("bad key", "L", "text", null)), "bad key");
+        assertInvalid(appWithOutputs(new CatalogOutput("a", "L", "text", null), new CatalogOutput("a", "L", "text", null)), "twice");
+        assertInvalid(appWithOutputs(new CatalogOutput("a", null, "text", null)), "without a label");
+        assertInvalid(appWithOutputs(new CatalogOutput("a", "L", "colour", null)), "unknown type colour");
+        assertInvalid(appWithOutputs(new CatalogOutput("a", "L", "text", List.of(new CatalogOutput("b", "L", "text", null)))),
+                "only object and list");
+        assertInvalid(appWithOutputs(new CatalogOutput("a", "L", "object", List.of(new CatalogOutput("b", "L", "nope", null)))),
+                "act_x output a output b of unknown type nope");
+        assertDoesNotThrow(() -> new CatalogService(appWithOutputs(new CatalogOutput("items", "Items", "list",
+                List.of(new CatalogOutput("name", "Name", "text", null))))));
+    }
+
     private static CatalogField field(String key, String type, List<CatalogField.Option> options, Object dflt) {
         return new CatalogField(key, "Label", type, false, null, null, options, dflt, null);
     }
 
     private static List<CatalogApp> appWith(String handler, CatalogField... fields) {
         return List.of(new CatalogApp("app_x", "X", null, null, List.of(),
-                List.of(new CatalogApp.Action("act_x", "Do X", null, handler, List.of(fields)))));
+                List.of(new CatalogApp.Action("act_x", "Do X", null, handler, List.of(fields), null))));
     }
 
     private static void assertInvalid(List<CatalogApp> apps, String expected) {
@@ -82,8 +117,8 @@ class CatalogServiceTest {
         assertInvalid(appWith("h", field("a", "select", List.of(new CatalogField.Option("x", "X")), "y")), "default");
 
         List<CatalogApp> twice = List.of(
-                new CatalogApp("app_a", "A", null, null, List.of(new CatalogApp.Trigger("trg_same", "T", null, List.of())), List.of()),
-                new CatalogApp("app_b", "B", null, null, List.of(new CatalogApp.Trigger("trg_same", "T", null, List.of())), List.of()));
+                new CatalogApp("app_a", "A", null, null, List.of(new CatalogApp.Trigger("trg_same", "T", null, List.of(), null)), List.of()),
+                new CatalogApp("app_b", "B", null, null, List.of(new CatalogApp.Trigger("trg_same", "T", null, List.of(), null)), List.of()));
         assertInvalid(twice, "item trg_same twice");
     }
 

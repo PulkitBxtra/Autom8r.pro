@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Braces, ChevronLeft, Eye, EyeOff, Plus, Trash2, X } from "lucide-react";
+import { Braces, ChevronLeft, ChevronRight, Eye, EyeOff, Plus, Trash2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AppLogo } from "@/components/ui/app-logo";
 import {
@@ -9,11 +9,12 @@ import {
   isEmptyValue,
   isSensitiveKey,
   missingRequired,
+  outputChoices,
   SECRET_MASK,
   templatePaths,
   type DataSource,
 } from "@/lib/step-fields";
-import type { CatalogField } from "@/lib/types";
+import type { CatalogField, OutputType } from "@/lib/types";
 import {
   conditionIncomplete,
   emptyCondition,
@@ -324,6 +325,16 @@ function TemplateInput({
 }
 
 // Pick a source (the trigger or an earlier step), then optionally a path inside its data.
+const TYPE_NAMES: Record<OutputType, string> = {
+  text: "Text",
+  number: "Number",
+  boolean: "Yes/no",
+  datetime: "Date",
+  object: "Object",
+  list: "List",
+  any: "Any",
+};
+
 function DataPicker({
   sources,
   onPick,
@@ -335,6 +346,8 @@ function DataPicker({
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [source, setSource] = useState<DataSource | null>(null);
+  // Typing a path by hand: always for sources that declare nothing, on request for the rest.
+  const [typing, setTyping] = useState(false);
   const [path, setPath] = useState("");
 
   useEffect(() => {
@@ -353,6 +366,24 @@ function DataPicker({
   }, [onClose]);
 
   const cleaned = path.trim().replace(/^\.+|\.+$/g, "");
+  const choices = source ? outputChoices(source.outputs) : [];
+
+  function choose(s: DataSource) {
+    setSource(s);
+    setTyping(s.outputs.length === 0);
+    setPath("");
+  }
+
+  const back = source && (
+    <button
+      type="button"
+      onClick={() => setSource(null)}
+      className="inline-flex items-center gap-1 text-xs font-medium text-text-muted hover:text-text"
+    >
+      <ChevronLeft className="size-3.5" />
+      {source.label}
+    </button>
+  );
 
   return (
     <div
@@ -370,13 +401,52 @@ function DataPicker({
             <button
               key={s.nodeId}
               type="button"
-              onClick={() => setSource(s)}
+              onClick={() => choose(s)}
               className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-white/5"
             >
               <AppLogo appId={s.appId} name={s.appName} className="size-6 rounded-md" />
               <span className="min-w-0 flex-1 truncate text-sm font-medium">{s.label}</span>
+              <ChevronRight className="size-3.5 shrink-0 text-text-faint" />
             </button>
           ))}
+        </div>
+      ) : !typing ? (
+        <div className="p-1.5">
+          <div className="px-2.5 pb-1.5 pt-1.5">{back}</div>
+          <div className="max-h-64 overflow-y-auto" role="listbox" aria-label={`Data from ${source.label}`}>
+            {choices.map((c) => (
+              <button
+                key={c.path}
+                type="button"
+                role="option"
+                aria-selected={false}
+                onClick={() => onPick(`${source.path}.${c.path}`)}
+                title={`{{${source.path}.${c.path}}}`}
+                style={{ paddingLeft: `${0.625 + c.depth * 0.875}rem` }}
+                className="flex w-full items-baseline gap-2 rounded-lg py-1.5 pr-2.5 text-left transition-colors hover:bg-white/5"
+              >
+                <span className="min-w-0 flex-1 truncate text-sm">{c.depth > 0 ? c.label.split(" → ").pop() : c.label}</span>
+                <span className="shrink-0 font-mono text-[10px] text-text-faint">{c.path}</span>
+                <span className="w-12 shrink-0 text-right text-[10px] text-text-faint">{TYPE_NAMES[c.type]}</span>
+              </button>
+            ))}
+          </div>
+          <div className="mt-1 flex gap-1 border-t border-border pt-1">
+            <button
+              type="button"
+              onClick={() => onPick(source.path)}
+              className="flex-1 rounded-lg px-2.5 py-1.5 text-left text-xs text-text-muted transition-colors hover:bg-white/5 hover:text-text"
+            >
+              All of it
+            </button>
+            <button
+              type="button"
+              onClick={() => setTyping(true)}
+              className="flex-1 rounded-lg px-2.5 py-1.5 text-right text-xs text-text-muted transition-colors hover:bg-white/5 hover:text-text"
+            >
+              Type a path…
+            </button>
+          </div>
         </div>
       ) : (
         <form
@@ -386,14 +456,7 @@ function DataPicker({
             onPick(cleaned ? `${source.path}.${cleaned}` : source.path);
           }}
         >
-          <button
-            type="button"
-            onClick={() => setSource(null)}
-            className="inline-flex items-center gap-1 text-xs font-medium text-text-muted hover:text-text"
-          >
-            <ChevronLeft className="size-3.5" />
-            {source.label}
-          </button>
+          {back}
           <div>
             <label htmlFor="data-path" className="mb-1.5 block text-xs text-text-muted">
               Field <span className="text-text-faint">(optional; leave empty for all of it)</span>
@@ -621,9 +684,16 @@ function UsedData({ value, sources }: { value: unknown; sources: DataSource[] })
       {paths.map((p) => {
         const d = describePath(p, sources);
         return (
-          <li key={p} className={cn("flex items-center gap-1.5 text-xs", d.known ? "text-text-muted" : "text-amber-400")}>
+          <li
+            key={p}
+            className={cn("flex items-center gap-1.5 text-xs", d.known && !d.undeclared ? "text-text-muted" : "text-amber-400")}
+          >
             <Braces className="size-3 shrink-0" />
-            {d.known ? `Uses ${d.label}` : `Uses ${p}, which isn't a step before this one`}
+            {!d.known
+              ? `Uses ${p}, which isn't a step before this one`
+              : d.undeclared
+                ? `Uses ${d.label}, which that step doesn't list, so it may be empty`
+                : `Uses ${d.label}`}
           </li>
         );
       })}
