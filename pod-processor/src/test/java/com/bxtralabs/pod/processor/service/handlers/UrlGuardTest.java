@@ -99,6 +99,31 @@ class UrlGuardTest {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/", ex -> {
             String path = ex.getRequestURI().getPath();
+            if (path.equals("/drip")) {
+                // Headers at once, then the body a byte every half second, for a minute.
+                ex.sendResponseHeaders(200, 0);
+                try {
+                    for (int i = 0; i < 120; i++) {
+                        ex.getResponseBody().write('x');
+                        ex.getResponseBody().flush();
+                        Thread.sleep(500);
+                    }
+                } catch (Exception gone) {
+                    // the client gave up
+                }
+                ex.close();
+                return;
+            }
+            if (path.startsWith("/slow-hop")) {
+                try {
+                    Thread.sleep(900);
+                } catch (InterruptedException ignored) {
+                }
+                ex.getResponseHeaders().add("Location", "/slow-hop" + (path.length() + 1));
+                ex.sendResponseHeaders(302, -1);
+                ex.close();
+                return;
+            }
             seen.add(ex.getRequestMethod() + " " + ex.getRequestURI().getHost() + path
                     + " auth=" + ex.getRequestHeaders().getFirst("Authorization")
                     + " body=" + new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
@@ -174,5 +199,24 @@ class UrlGuardTest {
         HttpRequestHandler real = new HttpRequestHandler(JsonMapper.builder().build(), false);
         assertThrows(PermanentStepException.class, () -> real.execute(NODE, Map.of("url", base + "/final")));
         assertTrue(seen.isEmpty());
+    }
+
+    @Test
+    void theTimeoutCoversReadingASlowBody() {
+        long started = System.nanoTime();
+        Exception e = assertThrows(java.net.http.HttpTimeoutException.class,
+                () -> handler().execute(NODE, Map.of("url", base + "/drip", "timeoutSeconds", 2)));
+        long took = java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
+        assertTrue(took < 4000, "stopped after " + took + "ms");
+        assertTrue(e.getMessage().contains("didn't finish within 2 seconds"), e.getMessage());
+    }
+
+    @Test
+    void theTimeoutCoversEveryRedirectHopTogether() {
+        long started = System.nanoTime();
+        assertThrows(java.net.http.HttpTimeoutException.class,
+                () -> handler().execute(NODE, Map.of("url", base + "/slow-hop", "timeoutSeconds", 2)));
+        long took = java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
+        assertTrue(took < 4000, "5 hops of 0.9s each would be 4.5s; stopped after " + took + "ms");
     }
 }

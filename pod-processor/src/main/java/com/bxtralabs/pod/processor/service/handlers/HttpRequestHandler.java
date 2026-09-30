@@ -11,6 +11,11 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.net.http.HttpTimeoutException;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -139,18 +144,36 @@ public class HttpRequestHandler implements ActionHandler {
             }
         }
 
+        // One deadline for the whole call: every redirect hop and reading each body. The client's
+        // own timeout only covers waiting for response headers, so a server sending its body
+        // slowly could otherwise hold a worker for good.
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(timeout);
         HttpResponse<String> response;
         for (int hop = 0; ; hop++) {
             guard.check(uri);
+            long left = deadline - System.nanoTime();
+            if (left <= 0) {
+                throw timedOut(method, url, timeout);
+            }
             HttpRequest.Builder request;
             try {
-                request = HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(timeout));
+                request = HttpRequest.newBuilder(uri).timeout(Duration.ofNanos(left));
                 headers.forEach(request::header);
             } catch (IllegalArgumentException bad) {
                 throw new PermanentStepException("http_request can't send this request: " + bad.getMessage());
             }
             request.method(method, bodyText == null ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofString(bodyText));
-            response = client.send(request.build(), HttpResponse.BodyHandlers.ofString());
+            CompletableFuture<HttpResponse<String>> call = client.sendAsync(request.build(), HttpResponse.BodyHandlers.ofString());
+            try {
+                response = call.get(Math.max(1, deadline - System.nanoTime()), TimeUnit.NANOSECONDS);
+            } catch (TimeoutException slow) {
+                call.cancel(true);
+                throw timedOut(method, url, timeout);
+            } catch (ExecutionException failed) {
+                // Unwrapped, so connection errors and timeouts read (and retry) as before.
+                if (failed.getCause() instanceof Exception cause) throw cause;
+                throw failed;
+            }
 
             int status = response.statusCode();
             Optional<String> location = response.headers().firstValue("location");
@@ -195,6 +218,11 @@ public class HttpRequestHandler implements ActionHandler {
         output.put("status", response.statusCode());
         output.put("body", parseBody(response.body()));
         return output;
+    }
+
+    // Temporary, like any timeout: the step is retried.
+    private static HttpTimeoutException timedOut(String method, Object url, int seconds) {
+        return new HttpTimeoutException(method + " " + url + " didn't finish within " + seconds + " seconds");
     }
 
     private static boolean isRedirect(int status) {

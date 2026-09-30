@@ -21,10 +21,15 @@ public class StepTaskConsumer {
         this.jsonMapper = jsonMapper;
     }
 
+    // One step per poll: a batch would make queued steps wait behind each other on one thread
+    // while other workers sit idle, and a long batch would outlast max.poll.interval.ms and get
+    // this worker thrown out of the group. 10 minutes covers the longest step (an HTTP call has
+    // at most 120s in all, a script 30s plus startup) with room to spare.
     @KafkaListener(
             topics = StepTopics.STEP_TASKS,
             groupId = "pod-processor-workers",
-            concurrency = "${steps.worker-concurrency:2}"
+            concurrency = "${steps.worker-concurrency:2}",
+            properties = {"max.poll.records=1", "max.poll.interval.ms=600000"}
     )
     public void consume(String payload, Acknowledgment ack) {
         StepTaskMessage task = jsonMapper.readValue(payload, StepTaskMessage.class);

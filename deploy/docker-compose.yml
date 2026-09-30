@@ -128,6 +128,9 @@ services:
       SANDBOX_TOKEN: ${SANDBOX_TOKEN:?set SANDBOX_TOKEN in deploy/.env}
       # HTTP steps only call public addresses (never the pods, Postgres or cloud metadata).
       HTTP_ALLOW_PRIVATE: "false"
+      # Steps running at once: step-tasks partitions and worker threads, kept equal.
+      STEPS_TOPIC_PARTITIONS: ${STEPS_TOPIC_PARTITIONS:-2}
+      STEPS_WORKER_CONCURRENCY: ${STEPS_TOPIC_PARTITIONS:-2}
     depends_on:
       pod-backend: { condition: service_healthy }
       kafka: { condition: service_healthy }
