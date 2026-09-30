@@ -2,3 +2,6 @@ kafka-certs/
 
 # Filled-in compose settings (secrets)
 deploy/.env
+
+# Private launch notes
+LAUNCH_CHECKLIST.md
