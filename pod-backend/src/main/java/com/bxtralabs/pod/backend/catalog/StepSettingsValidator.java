@@ -28,6 +28,19 @@ public class StepSettingsValidator {
             "gt", "gte", "lt", "lte", "is_empty", "is_not_empty", "is_true", "is_false", "in_list");
     static final Set<String> UNARY_OPERATORS = Set.of("is_empty", "is_not_empty", "is_true", "is_false");
     private static final Pattern PATH_ID = Pattern.compile("p_[a-z0-9]{1,16}");
+    private static final Pattern VARIABLE = Pattern.compile("[A-Za-z_][A-Za-z0-9_]*");
+    private static final Pattern OUTPUT_KEY = Pattern.compile("[A-Za-z][A-Za-z0-9_]*");
+    // Groovy's keywords and the names the script runner uses. Same list as pod-processor's
+    // CodeHandler.RESERVED; keep the two in sync.
+    static final Set<String> RESERVED_VARIABLES = Set.of(
+            "abstract", "as", "assert", "boolean", "break", "byte", "case", "catch", "char", "class", "const", "continue",
+            "def", "default", "do", "double", "else", "enum", "extends", "false", "final", "finally", "float", "for",
+            "goto", "if", "implements", "import", "in", "instanceof", "int", "interface", "long", "native", "new", "null",
+            "package", "private", "protected", "public", "return", "short", "static", "strictfp", "super", "switch",
+            "synchronized", "this", "threadsafe", "throw", "throws", "trait", "transient", "true", "try", "var", "void",
+            "volatile", "while", "yield", "record", "sealed", "permits", "non", "it", "out", "binding");
+    static final int MAX_DECLARED_OUTPUTS = 100;
+    static final int MAX_OUTPUT_DEPTH = 3;
     // The outputs a Logic step's edges may leave from, besides its own path ids.
     static final String OTHERWISE = "otherwise";
 
@@ -95,6 +108,7 @@ public class StepSettingsValidator {
         String itemName;
         String handler;
         List<CatalogField> fields;
+        CatalogApp.Action action = null;
         if (trigger) {
             CatalogApp.Trigger t = catalog.trigger(node.itemId()).orElseThrow(() -> unavailable(step, "trigger"));
             itemName = t.name();
@@ -102,6 +116,7 @@ public class StepSettingsValidator {
             fields = t.fields();
         } else {
             CatalogApp.Action a = catalog.action(node.itemId()).orElseThrow(() -> unavailable(step, "action"));
+            action = a;
             itemName = a.name();
             handler = a.handler();
             fields = a.fields();
@@ -122,6 +137,17 @@ public class StepSettingsValidator {
         String named = "\"" + itemName + "\"";
         Map<String, Object> parameters = checkParameters(named, fields == null ? List.of() : fields,
                 node.parameters() == null ? Map.of() : node.parameters());
+        if (action != null && action.outputsFrom() != null && parameters.get(action.outputsFrom()) instanceof List<?> declared) {
+            Set<String> builtIn = new HashSet<>();
+            action.outputs().forEach(o -> builtIn.add(o.key()));
+            for (Object o : declared) {
+                String key = String.valueOf(((Map<?, ?>) o).get("key"));
+                if (builtIn.contains(key)) {
+                    throw new IllegalArgumentException("Step " + named + ": the output \"" + key
+                            + "\" is already there (" + itemName + " adds it); give yours another name");
+                }
+            }
+        }
 
         List<FieldSpec> specs = (fields == null ? List.<CatalogField>of() : fields).stream()
                 .map(f -> new FieldSpec(f.key(), f.label(), f.type(), f.required(),
@@ -194,6 +220,12 @@ public class StepSettingsValidator {
             }
             case "conditions" -> checkConditions(where, value);
             case "paths" -> checkPaths(where, value);
+            case "code" -> {
+                if (!(value instanceof String)) throw new IllegalArgumentException(where + " must be text");
+                yield value;
+            }
+            case "variables" -> checkVariables(where, value);
+            case "outputs" -> checkDeclaredOutputs(where, value, 1, new int[]{0});
             default -> value; // json: any JSON value
         };
     }
@@ -228,6 +260,77 @@ public class StepSettingsValidator {
             }
         }
         return value;
+    }
+
+    // Each name becomes a variable in the script, so it must be one.
+    private static Object checkVariables(String where, Object value) {
+        if (!(value instanceof Map<?, ?> map) || !map.values().stream()
+                .allMatch(v -> v == null || v instanceof String || v instanceof Number || v instanceof Boolean)) {
+            throw new IllegalArgumentException(where + " must be a list of names and values");
+        }
+        for (Object k : map.keySet()) {
+            String name = String.valueOf(k);
+            if (!VARIABLE.matcher(name).matches()) {
+                throw new IllegalArgumentException(where + ": \"" + name
+                        + "\" can't be a variable name; use letters, digits and _, not starting with a digit");
+            }
+            if (RESERVED_VARIABLES.contains(name)) {
+                throw new IllegalArgumentException(where + ": \"" + name + "\" is a word Groovy reserves; choose another name");
+            }
+        }
+        return value;
+    }
+
+    // Outputs the user declares, in the shape of catalog outputs. Stored with only the known
+    // properties.
+    private static List<Map<String, Object>> checkDeclaredOutputs(String where, Object value, int depth, int[] count) {
+        if (!(value instanceof List<?> list)) {
+            throw new IllegalArgumentException(where + " must be a list of outputs");
+        }
+        Set<String> keys = new HashSet<>();
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (Object item : list) {
+            if (!(item instanceof Map<?, ?> o)) {
+                throw new IllegalArgumentException(where + " has an output that isn't one");
+            }
+            if (++count[0] > MAX_DECLARED_OUTPUTS) {
+                throw new IllegalArgumentException(where + " has more than " + MAX_DECLARED_OUTPUTS + " outputs");
+            }
+            String key = o.get("key") instanceof String k ? k.trim() : "";
+            if (!OUTPUT_KEY.matcher(key).matches() || key.length() > 60) {
+                throw new IllegalArgumentException(where + ": \"" + key
+                        + "\" can't be an output name; use letters, digits and _, starting with a letter");
+            }
+            if (!keys.add(key)) {
+                throw new IllegalArgumentException(where + " has the output \"" + key + "\" twice");
+            }
+            String type = String.valueOf(o.get("type"));
+            if (!CatalogOutput.TYPES.contains(type)) {
+                throw new IllegalArgumentException(where + ": output \"" + key + "\" has an unknown type " + type);
+            }
+            String label = o.get("label") instanceof String l && !l.isBlank() ? l.trim() : key;
+            if (label.length() > 60) {
+                throw new IllegalArgumentException(where + ": output \"" + key + "\" has a label over 60 characters");
+            }
+            Object fields = o.get("fields");
+            boolean nested = fields instanceof List<?> f && !f.isEmpty();
+            Map<String, Object> clean = new LinkedHashMap<>();
+            clean.put("key", key);
+            clean.put("label", label);
+            clean.put("type", type);
+            if (nested) {
+                if (!"object".equals(type) && !"list".equals(type)) {
+                    throw new IllegalArgumentException(where + ": output \"" + key + "\" is " + type
+                            + ", which can't hold fields; only object and list outputs can");
+                }
+                if (depth >= MAX_OUTPUT_DEPTH) {
+                    throw new IllegalArgumentException(where + " nests outputs more than " + MAX_OUTPUT_DEPTH + " levels deep");
+                }
+                clean.put("fields", checkDeclaredOutputs(where + " (" + key + ")", fields, depth + 1, count));
+            }
+            out.add(clean);
+        }
+        return out;
     }
 
     private static Object checkPaths(String where, Object value) {

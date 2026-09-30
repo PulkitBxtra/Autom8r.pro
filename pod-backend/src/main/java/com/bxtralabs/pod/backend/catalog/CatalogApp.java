@@ -35,8 +35,11 @@ public record CatalogApp(
 
     // handler: which pod-processor handler runs it; saved as the step's GraphNode.type.
     // outputs: what it returns (steps.<id>.output), empty when not declared.
+    // outputsFrom: the key of an "outputs" field in which the user declares (more of) what it
+    // returns, for steps whose output depends on their settings (a Code step's script). Listed
+    // before the catalog's own outputs.
     public record Action(String id, String name, String description, String handler, List<CatalogField> fields,
-                         List<CatalogOutput> outputs) {
+                         List<CatalogOutput> outputs, String outputsFrom) {
         public Action {
             outputs = outputs == null ? List.of() : List.copyOf(outputs);
         }

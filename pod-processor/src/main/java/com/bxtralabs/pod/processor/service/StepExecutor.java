@@ -3,6 +3,7 @@ package com.bxtralabs.pod.processor.service;
 import com.bxtralabs.pod.processor.model.ExecutionRun;
 import com.bxtralabs.pod.processor.model.StepRun;
 import com.bxtralabs.pod.processor.model.WorkflowVersion;
+import com.bxtralabs.pod.processor.model.graph.FieldSpec;
 import com.bxtralabs.pod.processor.model.graph.GraphNode;
 import com.bxtralabs.pod.processor.model.graph.WorkflowGraph;
 import com.bxtralabs.pod.processor.repository.ExecutionRunRepository;
@@ -22,6 +23,8 @@ import org.springframework.stereotype.Service;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 // Runs one READY step: claim it, resolve its templates, call its handler, and report the
 // result on step-results. Execution happens outside any transaction, so a slow
@@ -83,7 +86,7 @@ public class StepExecutor {
 
             // Parents are finished, so their outputs are final; reading them without the run lock is safe.
             List<StepRun> steps = stepRunRepository.findByRunId(runId);
-            input = templateResolver.resolveParameters(node.parameters(), TemplateResolver.context(graph, steps));
+            input = templateResolver.resolveParameters(node.parameters(), TemplateResolver.context(graph, steps), literalSettings(node));
             // If the check fails, the run shows the input as resolved, which is what the user needs to see.
             input = inputChecker.check(node, input);
             // Fetched per attempt, used for this call only: never part of the recorded input.
@@ -116,6 +119,17 @@ public class StepExecutor {
         // both paths fail (Kafka and the DB down) the step stays RUNNING; the stuck-step
         // sweeper (3.4) recovers it.
         resultPublisher.publish(new StepResultMessage(runId, stepRunId, input, output, error, retryable, attempt, uncertain));
+    }
+
+    // Settings used exactly as saved: code, and the outputs a Code step declares.
+    private static Set<String> literalSettings(GraphNode node) {
+        if (node.fields() == null) {
+            return Set.of();
+        }
+        return node.fields().stream()
+                .filter(f -> "code".equals(f.type()) || "outputs".equals(f.type()))
+                .map(FieldSpec::key)
+                .collect(Collectors.toSet());
     }
 
     private String ownerOf(ExecutionRun run) throws PermanentStepException {

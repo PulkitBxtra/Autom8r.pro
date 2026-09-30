@@ -105,6 +105,36 @@
       ]
     },
     {
+      "id": "app_code",
+      "name": "Code",
+      "description": "Run your own Groovy script",
+      "triggers": [],
+      "actions": [
+        {
+          "id": "act_code_groovy",
+          "name": "Run Groovy",
+          "description": "Runs a Groovy script on the data you give it and returns what it computes. Scripts work on data only: no files, network or threads (use an HTTP step to call APIs).",
+          "handler": "code.groovy",
+          "outputsFrom": "outputs",
+          "fields": [
+            { "key": "inputs", "label": "Inputs", "type": "variables",
+              "help": "Each name becomes a variable in the script. Values can use data from earlier steps." },
+            { "key": "script", "label": "Script", "type": "code", "required": true,
+              "defaultValue": "// Inputs are variables here, e.g. amount.\n// Return a map: its keys are this step's outputs.\nreturn [result: 'Hello']\n",
+              "help": "Groovy. Return a map whose keys match the outputs below; println output is kept as Printed output." },
+            { "key": "outputs", "label": "Outputs", "type": "outputs",
+              "defaultValue": [ { "key": "result", "label": "Result", "type": "text" } ],
+              "help": "What the script returns, so later steps can pick it from the data list. A value of the wrong type fails the step." },
+            { "key": "timeoutSeconds", "label": "Timeout (seconds)", "type": "number", "defaultValue": 10,
+              "help": "At most 30." }
+          ],
+          "outputs": [
+            { "key": "logs", "label": "Printed output", "type": "text" }
+          ]
+        }
+      ]
+    },
+    {
       "id": "app_gmail",
       "name": "Gmail",
       "description": "Send and receive email",

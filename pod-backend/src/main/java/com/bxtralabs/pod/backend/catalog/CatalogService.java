@@ -83,6 +83,7 @@ public class CatalogService {
             for (CatalogApp.Action a : nonNull(app.actions())) {
                 addItem(app, a.id(), a.name(), a.fields());
                 checkOutputs(a.id(), a.outputs());
+                checkOutputsFrom(a);
                 require(a.handler(), "action " + a.id() + " without a handler");
                 actions.put(a.id(), a);
             }
@@ -128,6 +129,21 @@ public class CatalogService {
                     && f.options().stream().noneMatch(o -> o.value().equals(f.defaultValue()))) {
                 throw invalid("has select " + where + " whose default isn't one of its options");
             }
+        }
+    }
+
+    // outputsFrom names one of the action's own fields, of type outputs; and an outputs field
+    // only makes sense as that one.
+    private static void checkOutputsFrom(CatalogApp.Action a) {
+        List<CatalogField> declaring = nonNull(a.fields()).stream().filter(f -> "outputs".equals(f.type())).toList();
+        if (a.outputsFrom() == null) {
+            if (!declaring.isEmpty()) {
+                throw invalid("has outputs field " + a.id() + "." + declaring.getFirst().key() + " without outputsFrom naming it");
+            }
+            return;
+        }
+        if (declaring.size() != 1 || !declaring.getFirst().key().equals(a.outputsFrom())) {
+            throw invalid("has " + a.id() + " with outputsFrom " + a.outputsFrom() + ", which isn't its one outputs field");
         }
     }
 

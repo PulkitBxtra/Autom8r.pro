@@ -14,7 +14,12 @@ export type FieldType =
   | "json"
   // Logic steps: a set of conditions, or named paths each with its conditions (lib/logic.ts).
   | "conditions"
-  | "paths";
+  | "paths"
+  // Code steps: name -> value pairs that become the script's variables, the script itself (kept
+  // as written, {{ }} is Groovy there), and the outputs the user declares (CatalogOutput[]).
+  | "variables"
+  | "code"
+  | "outputs";
 
 export type CatalogField = {
   key: string;
@@ -67,6 +72,9 @@ export type AppAction = {
   fields: CatalogField[];
   // steps.<id>.output; empty when not declared.
   outputs: CatalogOutput[];
+  // The key of an "outputs" field where the user declares what it returns (Code steps); those
+  // come before `outputs` in the data picker.
+  outputsFrom?: string | null;
 };
 
 export type App = {

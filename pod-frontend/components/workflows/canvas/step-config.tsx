@@ -1,10 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import { Braces, ChevronLeft, ChevronRight, Eye, EyeOff, Plus, Trash2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AppLogo } from "@/components/ui/app-logo";
 import { OptionLabel, OptionsField } from "@/components/workflows/canvas/options-field";
+import { asDeclared, OutputsInput, TYPE_NAMES, type DeclaredOutput } from "@/components/workflows/canvas/outputs-input";
+import { variableProblem } from "@/lib/code";
 import {
   describePath,
   isEmptyValue,
@@ -15,7 +18,7 @@ import {
   templatePaths,
   type DataSource,
 } from "@/lib/step-fields";
-import type { CatalogField, OutputType } from "@/lib/types";
+import type { CatalogField } from "@/lib/types";
 import {
   conditionIncomplete,
   emptyCondition,
@@ -28,6 +31,12 @@ import {
   type LogicPath,
 } from "@/lib/logic";
 
+// The script editor, downloaded only when a Code step's settings are shown.
+const CodeEditor = dynamic(() => import("@/components/workflows/canvas/code-editor"), {
+  ssr: false,
+  loading: () => <div className="h-40 animate-pulse rounded-lg border border-border-strong bg-surface-sunken" />,
+});
+
 // The Configure tab: one input per catalog field, saved into the step's parameters by key.
 // Text-like inputs can insert data from the trigger or earlier steps as {{...}} templates.
 export function StepConfigForm({
@@ -37,6 +46,7 @@ export function StepConfigForm({
   readOnly,
   showMissing,
   connectionId,
+  builtInOutputs = [],
   onChange,
 }: {
   fields: CatalogField[];
@@ -45,6 +55,8 @@ export function StepConfigForm({
   readOnly: boolean;
   // The step's account, for settings picked from a list of its things (optionsFrom).
   connectionId?: string | null;
+  // Output names the step always has (a Code step's "logs"), which declared outputs can't reuse.
+  builtInOutputs?: string[];
   // Mark empty required fields (after a save attempt found them).
   showMissing: boolean;
   onChange: (values: Record<string, unknown>) => void;
@@ -62,6 +74,12 @@ export function StepConfigForm({
       </div>
     );
   }
+
+  // A Code step's input names, the variables its script can use.
+  const variablesField = fields.find((f) => f.type === "variables");
+  const inputs = variablesField ? values[variablesField.key] : undefined;
+  const variables =
+    inputs && typeof inputs === "object" ? Object.keys(inputs).filter((k) => k.trim() && !variableProblem(k)) : [];
 
   function set(key: string, value: unknown) {
     const next = { ...values };
@@ -96,6 +114,8 @@ export function StepConfigForm({
                 sources={sources}
                 invalid={missing}
                 connectionId={connectionId}
+                variables={variables}
+                builtInOutputs={builtInOutputs}
                 onChange={(v) => set(field.key, v)}
               />
             )}
@@ -105,7 +125,8 @@ export function StepConfigForm({
               </p>
             )}
             {field.help && <p className="mt-1.5 text-xs text-text-faint">{field.help}</p>}
-            <UsedData value={value} sources={sources} />
+            {/* In code, {{ }} is Groovy, not data. */}
+            {field.type !== "code" && field.type !== "outputs" && <UsedData value={value} sources={sources} />}
           </div>
         );
       })}
@@ -119,6 +140,8 @@ function FieldInput({
   sources,
   invalid,
   connectionId,
+  variables = [],
+  builtInOutputs = [],
   onChange,
 }: {
   field: CatalogField;
@@ -126,10 +149,53 @@ function FieldInput({
   sources: DataSource[];
   invalid: boolean;
   connectionId?: string | null;
+  variables?: string[];
+  builtInOutputs?: string[];
   onChange: (value: unknown) => void;
 }) {
   const id = `field-${field.key}`;
   switch (field.type) {
+    case "code":
+      return (
+        <div>
+          <p className="mb-2 text-xs text-text-muted" data-variables>
+            {variables.length > 0 ? (
+              <>
+                Variables:{" "}
+                {variables.map((v, i) => (
+                  <span key={v}>
+                    {i > 0 && ", "}
+                    <code className="rounded bg-white/5 px-1 font-mono text-[11px] text-text">{v}</code>
+                  </span>
+                ))}
+              </>
+            ) : (
+              "Add inputs above to use data from earlier steps as variables."
+            )}
+          </p>
+          <CodeEditor
+            label={field.label}
+            value={typeof value === "string" ? value : ""}
+            variables={variables}
+            invalid={invalid}
+            onChange={(t) => onChange(t.trim() === "" ? undefined : t)}
+          />
+        </div>
+      );
+    case "variables":
+      return (
+        <KeyValueInput
+          value={value}
+          sources={sources}
+          invalid={invalid}
+          secret={false}
+          keyPlaceholder="Name"
+          keyProblem={variableProblem}
+          onChange={onChange}
+        />
+      );
+    case "outputs":
+      return <OutputsInput value={value} taken={builtInOutputs} onChange={onChange} />;
     case "boolean":
       return (
         <button
@@ -351,15 +417,6 @@ function TemplateInput({
 }
 
 // Pick a source (the trigger or an earlier step), then optionally a path inside its data.
-const TYPE_NAMES: Record<OutputType, string> = {
-  text: "Text",
-  number: "Number",
-  boolean: "Yes/no",
-  datetime: "Date",
-  object: "Object",
-  list: "List",
-  any: "Any",
-};
 
 function DataPicker({
   sources,
@@ -524,6 +581,8 @@ function KeyValueInput({
   sources,
   invalid,
   secret,
+  keyPlaceholder = "Key",
+  keyProblem,
   onChange,
 }: {
   value: unknown;
@@ -531,6 +590,9 @@ function KeyValueInput({
   invalid: boolean;
   // Values of sensitive-looking names (Authorization...) are typed like passwords.
   secret: boolean;
+  keyPlaceholder?: string;
+  // Why a name isn't allowed (a Code step's inputs must be variable names), shown under its row.
+  keyProblem?: (key: string) => string | null;
   onChange: (value: unknown) => void;
 }) {
   const [rows, setRows] = useState<Row[]>(() => {
@@ -548,17 +610,21 @@ function KeyValueInput({
 
   return (
     <div className="space-y-2">
-      {rows.map((row, i) => (
-        <div key={row.id} className="flex items-start gap-2">
+      {rows.map((row, i) => {
+        const problem = keyProblem?.(row.key) ?? null;
+        return (
+        <div key={row.id}>
+        <div className="flex items-start gap-2">
           <input
             aria-label={`Key ${i + 1}`}
             value={row.key}
-            placeholder="Key"
+            placeholder={keyPlaceholder}
             spellCheck={false}
             onChange={(e) => update(rows.map((r) => (r.id === row.id ? { ...r, key: e.target.value } : r)))}
             className={cn(
               "h-11 w-[38%] shrink-0 rounded-lg border bg-surface-sunken px-3 text-sm text-text placeholder:text-text-faint outline-none focus:border-lemon",
-              invalid ? "border-red-500/60" : "border-border-strong"
+              keyProblem && "font-mono text-xs",
+              invalid || problem ? "border-red-500/60" : "border-border-strong"
             )}
           />
           <div className="min-w-0 flex-1">
@@ -585,7 +651,10 @@ function KeyValueInput({
             <X className="size-4" />
           </button>
         </div>
-      ))}
+        {problem && <p className="mt-1 text-xs text-red-400">{problem}</p>}
+        </div>
+        );
+      })}
       <button
         type="button"
         onClick={() => setRows([...rows, newRow()])}
@@ -658,6 +727,22 @@ function parseJson(text: string): { ok: true; value: unknown } | { ok: false } {
 }
 
 function ReadOnlyValue({ field, value }: { field: CatalogField; value: unknown }) {
+  if (field.type === "outputs") {
+    const rows = asDeclared(value);
+    if (rows.length === 0) return <p className="text-sm text-text-faint">None declared</p>;
+    const list = (items: DeclaredOutput[], depth: number): React.ReactNode => (
+      <ul className={cn("space-y-0.5", depth > 0 && "ml-4")}>
+        {items.map((o, i) => (
+          <li key={i}>
+            <span className="font-mono text-xs">{o.key}</span>
+            <span className="text-xs text-text-muted"> · {o.label || o.key} · {TYPE_NAMES[o.type] ?? o.type}</span>
+            {o.fields && o.fields.length > 0 && list(o.fields, depth + 1)}
+          </li>
+        ))}
+      </ul>
+    );
+    return <div className="rounded-xl border border-border-strong bg-surface-sunken px-4 py-3">{list(rows, 0)}</div>;
+  }
   if (field.type === "conditions" || field.type === "paths") {
     const groups = field.type === "paths" ? asPaths(value) : [{ ...asGroup(value), id: "", name: "" }];
     return (
@@ -693,7 +778,8 @@ function ReadOnlyValue({ field, value }: { field: CatalogField; value: unknown }
       className={cn(
         "whitespace-pre-wrap break-words rounded-xl border border-border-strong bg-surface-sunken px-4 py-3 font-sans text-sm",
         isEmptyValue(value) ? "text-text-faint" : "text-text",
-        (field.type === "json" || field.type === "keyvalue") && "font-mono text-xs"
+        (field.type === "json" || field.type === "keyvalue" || field.type === "variables" || field.type === "code") &&
+          "font-mono text-xs"
       )}
     >
       {shown}

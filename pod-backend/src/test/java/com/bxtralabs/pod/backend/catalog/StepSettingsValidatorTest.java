@@ -210,4 +210,52 @@ class StepSettingsValidatorTest {
                 "conditions", List.of(cond("{{trigger.body.ok}}", "is_true", null))));
         assertNull(normalizedWith("act_logic_filter", filter, "con_1").connectionId(), "dropped: Logic steps act through nothing");
     }
+
+    private static Map<String, Object> code(Object... kv) {
+        Map<String, Object> m = new HashMap<>(Map.of("script", "[total: amount * 2]"));
+        for (int i = 0; i < kv.length; i += 2) m.put((String) kv[i], kv[i + 1]);
+        return m;
+    }
+
+    @Test
+    void codeStepsKeepTheirScriptAndDeclaredOutputs() {
+        GraphNode saved = check("act_code_groovy", code(
+                "inputs", Map.of("amount", "{{trigger.body.amount}}", "_n2", 3),
+                "outputs", List.of(Map.of("key", "total", "type", "number", "junk", 1),
+                        Map.of("key", "lines", "label", "Lines", "type", "list",
+                                "fields", List.of(Map.of("key", "sku", "label", "SKU", "type", "text"))))));
+        assertEquals("code.groovy", saved.type());
+        assertEquals("[total: amount * 2]", saved.parameters().get("script"));
+        assertEquals(List.of(Map.of("key", "total", "label", "total", "type", "number"),
+                Map.of("key", "lines", "label", "Lines", "type", "list",
+                        "fields", List.of(Map.of("key", "sku", "label", "SKU", "type", "text")))),
+                saved.parameters().get("outputs"), "a missing label becomes the name; unknown properties are dropped");
+        assertTrue(saved.fields().stream().anyMatch(f -> f.key().equals("script") && f.type().equals("code")),
+                "the processor learns which settings are code");
+    }
+
+    @Test
+    void codeInputsMustBeVariableNames() {
+        assertTrue(rejected("act_code_groovy", code("inputs", Map.of("first name", "x"))).contains("can't be a variable name"));
+        assertTrue(rejected("act_code_groovy", code("inputs", Map.of("9lives", "x"))).contains("can't be a variable name"));
+        assertTrue(rejected("act_code_groovy", code("inputs", Map.of("class", "x"))).contains("reserves"));
+        assertTrue(rejected("act_code_groovy", code("inputs", Map.of("out", "x"))).contains("reserves"));
+        assertEquals("Step \"Run Groovy\" needs Script", rejected("act_code_groovy", code("script", " ")));
+    }
+
+    @Test
+    void declaredOutputsAreChecked() {
+        assertTrue(rejected("act_code_groovy", code("outputs", List.of(Map.of("key", "a b", "type", "text"))))
+                .contains("can't be an output name"));
+        assertTrue(rejected("act_code_groovy", code("outputs", List.of(Map.of("key", "a", "type", "text"), Map.of("key", "a", "type", "number"))))
+                .contains("twice"));
+        assertTrue(rejected("act_code_groovy", code("outputs", List.of(Map.of("key", "a", "type", "money")))).contains("unknown type"));
+        assertTrue(rejected("act_code_groovy", code("outputs", List.of(Map.of("key", "a", "type", "text",
+                "fields", List.of(Map.of("key", "b", "type", "text")))))).contains("can't hold fields"));
+        Map<String, Object> deep = Map.of("key", "d", "type", "text");
+        for (int i = 0; i < 3; i++) deep = Map.of("key", "o" + i, "type", "object", "fields", List.of(deep));
+        assertTrue(rejected("act_code_groovy", code("outputs", List.of(deep))).contains("more than 3 levels"));
+        assertTrue(rejected("act_code_groovy", code("outputs", List.of(Map.of("key", "logs", "type", "text"))))
+                .contains("\"logs\" is already there"));
+    }
 }

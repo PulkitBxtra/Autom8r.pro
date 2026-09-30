@@ -1,4 +1,4 @@
-import type { CatalogField, CatalogOutput } from "@/lib/types";
+import type { AppAction, AppTrigger, CatalogField, CatalogOutput, OutputType } from "@/lib/types";
 import { groupIncomplete, pathsIncomplete } from "@/lib/logic";
 
 // Where a step can read data from: the trigger or a step that always runs before it. `path` is
@@ -12,6 +12,29 @@ export type DataSource = {
   // What its data holds, from the catalog; empty when not declared (any path may be typed).
   outputs: CatalogOutput[];
 };
+
+const OUTPUT_TYPES: OutputType[] = ["text", "number", "boolean", "datetime", "object", "list", "any"];
+
+// Outputs a user declared on a step (a Code step's Outputs setting), in catalog shape; rows
+// without a name yet are left out.
+export function declaredOutputs(value: unknown): CatalogOutput[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((o): o is Record<string, unknown> => !!o && typeof o === "object" && typeof o.key === "string" && o.key.trim() !== "")
+    .map((o) => ({
+      key: String(o.key).trim(),
+      label: typeof o.label === "string" && o.label.trim() ? o.label.trim() : String(o.key).trim(),
+      type: OUTPUT_TYPES.includes(o.type as OutputType) ? (o.type as OutputType) : "any",
+      fields: declaredOutputs(o.fields),
+    }));
+}
+
+// What a step's data holds: the catalog's outputs, after the ones its settings declare.
+export function stepOutputs(item: AppTrigger | AppAction, parameters: Record<string, unknown> | undefined): CatalogOutput[] {
+  const from = "outputsFrom" in item ? item.outputsFrom : null;
+  if (!from) return item.outputs ?? [];
+  return [...declaredOutputs(parameters?.[from]), ...(item.outputs ?? [])];
+}
 
 // One choice in the data picker: a declared output, or a field of each item of a list (read
 // from its first item, e.g. files.0.name).

@@ -14,6 +14,11 @@ import java.util.Set;
 //   json            any JSON value
 //   conditions      {"match": "all"|"any", "conditions": [{"left", "op", "right"}]} (Logic steps)
 //   paths           [{"id", "name", "match", "conditions"}], each a named set of conditions (Logic steps)
+//   variables       object of name -> value like keyvalue, where each name becomes a variable in
+//                   a script, so it must be one (Code steps)
+//   code            a script (string), used exactly as written: {{...}} in it isn't filled in
+//   outputs         [{"key", "label", "type", "fields"}]: what the step returns, declared by the
+//                   user in the shape of catalog outputs (see CatalogOutput and Action.outputsFrom)
 // secret: never shown back once saved (see SecretMasker). On text the whole value; on keyvalue
 // the values of sensitive-looking names (Authorization, X-Api-Key...).
 // optionsFrom: a list pod-connector fills from the step's account (GET /connections/{id}/options/
@@ -38,7 +43,7 @@ public record CatalogField(
     }
 
     public static final Set<String> TYPES = Set.of("text", "textarea", "number", "boolean", "select", "keyvalue", "json",
-            "conditions", "paths");
+            "conditions", "paths", "variables", "code", "outputs");
 
     // The lists pod-connector can fill, and the app whose accounts they come from.
     public static final Map<String, String> OPTION_SOURCES = Map.of(

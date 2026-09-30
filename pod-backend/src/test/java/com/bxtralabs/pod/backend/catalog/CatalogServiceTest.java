@@ -77,20 +77,33 @@ class CatalogServiceTest {
     void optionListsMustFitTheFieldAndTheApp() throws Exception {
         CatalogField repo = new CatalogField("repository", "Repository", "text", true, null, null, null, null, null, "github.repos");
         List<CatalogApp> github = List.of(new CatalogApp("app_github", "GitHub", null, "required", List.of(),
-                List.of(new CatalogApp.Action("act_x", "Do X", null, "h", List.of(repo), null))));
+                List.of(new CatalogApp.Action("act_x", "Do X", null, "h", List.of(repo), null, null))));
         assertDoesNotThrow(() -> new CatalogService(github));
         List<CatalogApp> slack = List.of(new CatalogApp("app_slack", "Slack", null, "required", List.of(),
-                List.of(new CatalogApp.Action("act_x", "Do X", null, "h", List.of(repo), null))));
+                List.of(new CatalogApp.Action("act_x", "Do X", null, "h", List.of(repo), null, null))));
         assertInvalid(slack, "isn't a list of app_slack accounts");
         CatalogField number = new CatalogField("n", "N", "number", false, null, null, null, null, null, "github.repos");
         assertInvalid(List.of(new CatalogApp("app_github", "GitHub", null, "required", List.of(),
-                List.of(new CatalogApp.Action("act_x", "Do X", null, "h", List.of(number), null)))), "only text fields");
+                List.of(new CatalogApp.Action("act_x", "Do X", null, "h", List.of(number), null, null)))), "only text fields");
         assertEquals("slack.channels", real().trigger("trg_slack_new_message").orElseThrow().fields().getFirst().optionsFrom());
+    }
+
+    @Test
+    void outputsFromMustNameTheActionsOneOutputsField() throws Exception {
+        CatalogField declared = new CatalogField("outputs", "Outputs", "outputs", false, null, null, null, null, null, null);
+        CatalogField script = new CatalogField("script", "Script", "code", true, null, null, null, null, null, null);
+        assertDoesNotThrow(() -> new CatalogService(List.of(new CatalogApp("app_x", "X", null, null, List.of(),
+                List.of(new CatalogApp.Action("act_x", "Do X", null, "h", List.of(script, declared), null, "outputs"))))));
+        assertInvalid(List.of(new CatalogApp("app_x", "X", null, null, List.of(),
+                List.of(new CatalogApp.Action("act_x", "Do X", null, "h", List.of(script, declared), null, null)))), "without outputsFrom");
+        assertInvalid(List.of(new CatalogApp("app_x", "X", null, null, List.of(),
+                List.of(new CatalogApp.Action("act_x", "Do X", null, "h", List.of(script), null, "script")))), "isn't its one outputs field");
+        assertEquals("outputs", real().action("act_code_groovy").orElseThrow().outputsFrom());
     }
 
     private static List<CatalogApp> appWithOutputs(CatalogOutput... outputs) {
         return List.of(new CatalogApp("app_x", "X", null, null, List.of(),
-                List.of(new CatalogApp.Action("act_x", "Do X", null, "h", List.of(), List.of(outputs)))));
+                List.of(new CatalogApp.Action("act_x", "Do X", null, "h", List.of(), List.of(outputs), null))));
     }
 
     @Test
@@ -113,7 +126,7 @@ class CatalogServiceTest {
 
     private static List<CatalogApp> appWith(String handler, CatalogField... fields) {
         return List.of(new CatalogApp("app_x", "X", null, null, List.of(),
-                List.of(new CatalogApp.Action("act_x", "Do X", null, handler, List.of(fields), null))));
+                List.of(new CatalogApp.Action("act_x", "Do X", null, handler, List.of(fields), null, null))));
     }
 
     private static void assertInvalid(List<CatalogApp> apps, String expected) {

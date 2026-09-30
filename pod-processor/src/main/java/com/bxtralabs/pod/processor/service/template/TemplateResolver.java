@@ -79,6 +79,18 @@ public class TemplateResolver {
         return (Map<String, Object>) resolve(parameters, context);
     }
 
+    // Same, but the settings named in `literal` are kept as written: a Code step's script, where
+    // {{ }} is Groovy (and filling data into code would let the data run as code).
+    public Map<String, Object> resolveParameters(Map<String, Object> parameters, Map<String, Object> context,
+                                                 Set<String> literal) {
+        if (parameters == null) {
+            return new LinkedHashMap<>();
+        }
+        Map<String, Object> out = new LinkedHashMap<>();
+        parameters.forEach((k, v) -> out.put(k, literal.contains(k) ? v : resolve(v, context)));
+        return out;
+    }
+
     private Object resolveString(String s, Map<String, Object> context) {
         Matcher whole = TEMPLATE.matcher(s);
         // Exactly one template and nothing else: keep the value's real type (number, map, list...).

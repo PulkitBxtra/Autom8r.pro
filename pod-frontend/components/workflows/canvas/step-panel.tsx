@@ -263,6 +263,9 @@ export function StepPanel({
               readOnly={readOnly}
               showMissing={showMissing}
               connectionId={node.data.connectionId}
+              builtInOutputs={
+                "outputsFrom" in node.data.item && node.data.item.outputsFrom ? node.data.item.outputs.map((o) => o.key) : []
+              }
               onChange={(parameters) => onChange?.({ parameters })}
             />
           ) : (
@@ -274,7 +277,12 @@ export function StepPanel({
         {tab === "test" &&
           (run?.selected ? (
             run.step ? (
-              <StepRunDetails step={run.step} now={run.now} isTrigger={isTrigger} />
+              <StepRunDetails
+                step={run.step}
+                now={run.now}
+                isTrigger={isTrigger}
+                isCode={!!node.data.item && "handler" in node.data.item && node.data.item.handler === "code.groovy"}
+              />
             ) : (
               <p className="text-sm text-text-muted">
                 This step wasn&apos;t part of the selected run -- the workflow
@@ -446,7 +454,18 @@ function accountLabel(c: AppConnection) {
 
 // What one step did in the selected run: status, timing, error, and the exact
 // input it ran with (templates resolved) and output it produced.
-function StepRunDetails({ step, now, isTrigger }: { step: StepDetail; now: number; isTrigger: boolean }) {
+function StepRunDetails({
+  step,
+  now,
+  isTrigger,
+  isCode,
+}: {
+  step: StepDetail;
+  now: number;
+  isTrigger: boolean;
+  // A Code step: shows its inputs and what it printed rather than the script it was saved with.
+  isCode: boolean;
+}) {
   const finished = step.endedAt != null && step.status !== "RUNNING";
   const duration =
     step.startedAt != null ? (finished ? step.endedAt! : now) - step.startedAt : null;
@@ -489,6 +508,8 @@ function StepRunDetails({ step, now, isTrigger }: { step: StepDetail; now: numbe
       {Array.isArray(step.output?.explain) && <Decision output={step.output!} />}
       {isTrigger && step.output != null ? (
         <TriggerData body={step.output.body} />
+      ) : isCode ? (
+        <CodeRunDetails step={step} />
       ) : (
         <>
           {step.input != null && <JsonSection label="Input">{json(step.input)}</JsonSection>}
@@ -496,6 +517,21 @@ function StepRunDetails({ step, now, isTrigger }: { step: StepDetail; now: numbe
         </>
       )}
     </div>
+  );
+}
+
+function CodeRunDetails({ step }: { step: StepDetail }) {
+  const inputs = step.input?.inputs;
+  const logs = typeof step.output?.logs === "string" ? step.output.logs : "";
+  const returned = step.output ? Object.fromEntries(Object.entries(step.output).filter(([k]) => k !== "logs")) : null;
+  return (
+    <>
+      {step.input != null && (
+        <JsonSection label="Inputs">{inputs && typeof inputs === "object" ? json(inputs) : "None"}</JsonSection>
+      )}
+      {logs.trim() !== "" && <JsonSection label="Printed output">{logs}</JsonSection>}
+      {returned != null && <JsonSection label="Returned">{json(returned)}</JsonSection>}
+    </>
   );
 }
 

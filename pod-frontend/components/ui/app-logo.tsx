@@ -1,4 +1,4 @@
-import { Globe, Split, Webhook } from "lucide-react";
+import { CodeXml, Globe, Split, Webhook } from "lucide-react";
 import {
   siDiscord,
   siGithub,
@@ -54,7 +54,15 @@ export function AppLogo({
   }
   // Built-in apps: an icon on a neutral tile.
   const BuiltIn =
-    appId === "app_http" ? Globe : appId === "app_webhook" ? Webhook : appId === "app_logic" ? Split : null;
+    appId === "app_http"
+      ? Globe
+      : appId === "app_webhook"
+        ? Webhook
+        : appId === "app_logic"
+          ? Split
+          : appId === "app_code"
+            ? CodeXml
+            : null;
   if (BuiltIn) {
     return (
       <div className={cn(tile, "bg-white/10 text-text", className)} aria-label={name} role="img">

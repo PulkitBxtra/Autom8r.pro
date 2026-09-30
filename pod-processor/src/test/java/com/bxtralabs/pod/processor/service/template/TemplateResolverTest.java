@@ -100,4 +100,13 @@ class TemplateResolverTest {
     void nullParametersBecomeEmptyInput() {
         assertEquals(Map.of(), resolver.resolveParameters(null, context));
     }
+
+    @Test
+    void literalSettingsAreKeptAsWritten() {
+        Map<String, Object> params = Map.of("script", "[1].collect {{ it }} // {{trigger.body.email}}",
+                "inputs", Map.of("to", "{{trigger.body.email}}"));
+        Map<String, Object> resolved = resolver.resolveParameters(params, context, java.util.Set.of("script"));
+        assertEquals(params.get("script"), resolved.get("script"));
+        assertEquals(Map.of("to", "a@b.co"), resolved.get("inputs"));
+    }
 }

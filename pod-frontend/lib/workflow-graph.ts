@@ -8,7 +8,7 @@ import type {
   WorkflowGraph,
 } from "@/lib/types";
 import type { Catalog } from "@/lib/catalog";
-import { missingRequired, type DataSource } from "@/lib/step-fields";
+import { missingRequired, stepOutputs, type DataSource } from "@/lib/step-fields";
 import { logicOutputs } from "@/lib/logic";
 
 export type GraphNodeData = {
@@ -163,7 +163,7 @@ export function upstreamSources(
       appId: n.data.app?.id,
       appName: n.data.app?.name ?? "",
       path: n.data.kind === "trigger" ? "trigger.body" : `steps.${n.id}.output`,
-      outputs: n.data.item!.outputs ?? [],
+      outputs: stepOutputs(n.data.item!, n.data.parameters),
     }));
 }
 
