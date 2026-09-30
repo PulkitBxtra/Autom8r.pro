@@ -20,7 +20,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class HandlersTest {
 
     private final JsonMapper jsonMapper = JsonMapper.builder().build();
-    private final HttpRequestHandler http = new HttpRequestHandler(jsonMapper);
+    private final HttpRequestHandler http = new HttpRequestHandler(jsonMapper, true);
     private final ActionHandlerRegistry registry =
             new ActionHandlerRegistry(List.of(new LogHandler(), http, new SimulatedHandler()));
 

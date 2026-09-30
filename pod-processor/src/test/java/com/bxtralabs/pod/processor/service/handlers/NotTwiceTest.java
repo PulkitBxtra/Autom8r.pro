@@ -214,7 +214,7 @@ class NotTwiceTest {
 
     @Test
     void httpRequestsThatChangeSomethingCarryAnIdempotencyKey() throws Exception {
-        HttpRequestHandler http = new HttpRequestHandler(json);
+        HttpRequestHandler http = new HttpRequestHandler(json, true);
         http.execute(node("http_request"), Map.of("url", base + "/x", "method", "POST", "body", Map.of("a", 1)), null, RETRY);
         assertEquals("stp_1", lastHeaders.get("idempotency-key"));
         lastHeaders.clear();
