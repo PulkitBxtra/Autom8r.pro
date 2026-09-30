@@ -3,25 +3,23 @@
 import { useState } from "react";
 import Link from "next/link";
 import { AlertTriangle, ChevronRight, Plus, Search, X } from "lucide-react";
-import { cn, formatDuration } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { AppLogo } from "@/components/ui/app-logo";
 import { useCatalog } from "@/lib/catalog-context";
 import { Input } from "@/components/ui/input";
-import { StepStatusBadge } from "@/components/workflows/run-status";
 import { useStepConnection, useStepConnections } from "@/components/workflows/step-connections";
 import { CredentialsForm } from "@/components/connections/connection-form";
 import { StepConfigForm } from "@/components/workflows/canvas/step-config";
+import { WebhookUrl, type SavedWorkflow } from "@/components/workflows/canvas/webhook-url";
 import { defaultParameters, missingRequired, type DataSource } from "@/lib/step-fields";
-import { operatorLabel } from "@/lib/logic";
-import type { App, AppConnection, StepDetail } from "@/lib/types";
+import type { App, AppConnection } from "@/lib/types";
 import type { GraphNodeData, WorkflowNode } from "@/lib/workflow-graph";
 
-export type StepTab = "setup" | "configure" | "test";
+export type StepTab = "setup" | "configure";
 type Tab = StepTab;
 const TABS: { id: Tab; label: string }[] = [
   { id: "setup", label: "Setup" },
   { id: "configure", label: "Configure" },
-  { id: "test", label: "Test" },
 ];
 
 export function StepPanel({
@@ -30,12 +28,14 @@ export function StepPanel({
   readOnly = false,
   onClose,
   onChange,
-  run,
   sources = [],
   initialTab,
   showMissing = false,
+  workflow,
 }: {
   node: WorkflowNode;
+  // The saved workflow, for a Webhook trigger's URL (none while it's never been saved).
+  workflow?: SavedWorkflow | null;
   stepNumber: number;
   readOnly?: boolean;
   // Data this step can use: the trigger and the steps that always run before it.
@@ -46,11 +46,8 @@ export function StepPanel({
   onClose: () => void;
   // Applies an edit to this step's data (app, event, connection).
   onChange?: (patch: Partial<GraphNodeData>) => void;
-  // The run being viewed, if any: whether one is selected, and this step's part in it.
-  run?: { selected: boolean; step: StepDetail | null; now: number };
 }) {
-  // Viewing a run means the user wants to see what happened, so open on Test.
-  const [tab, setTab] = useState<Tab>(initialTab ?? (run?.selected ? "test" : "setup"));
+  const [tab, setTab] = useState<Tab>(initialTab ?? "setup");
   const [appPickerOpen, setAppPickerOpen] = useState(!node.data.app);
   const [query, setQuery] = useState("");
   const { connections } = useStepConnections();
@@ -241,6 +238,8 @@ export function StepPanel({
               )}
             </div>
 
+            {isTrigger && node.data.item?.id === "trg_webhook_catch" && <WebhookUrl workflow={workflow} />}
+
             {node.data.app && (
               <AccountSection
                 app={node.data.app}
@@ -274,28 +273,6 @@ export function StepPanel({
             </p>
           ))}
 
-        {tab === "test" &&
-          (run?.selected ? (
-            run.step ? (
-              <StepRunDetails
-                step={run.step}
-                now={run.now}
-                isTrigger={isTrigger}
-                isCode={!!node.data.item && "handler" in node.data.item && node.data.item.handler === "code.groovy"}
-              />
-            ) : (
-              <p className="text-sm text-text-muted">
-                This step wasn&apos;t part of the selected run -- the workflow
-                has changed since that run.
-              </p>
-            )
-          ) : (
-            <p className="text-sm text-text-muted">
-              Pick a run in <span className="font-semibold text-text">Run history</span>{" "}
-              to see what this step received and returned, or use{" "}
-              <span className="font-semibold text-text">Run now</span> to start one.
-            </p>
-          ))}
       </div>
     </div>
   );
@@ -450,211 +427,4 @@ function AccountWarning({ connection }: { connection: AppConnection }) {
 
 function accountLabel(c: AppConnection) {
   return c.label || `${c.appName} (${c.authType === "OAUTH" ? "signed in" : "token"})`;
-}
-
-// What one step did in the selected run: status, timing, error, and the exact
-// input it ran with (templates resolved) and output it produced.
-function StepRunDetails({
-  step,
-  now,
-  isTrigger,
-  isCode,
-}: {
-  step: StepDetail;
-  now: number;
-  isTrigger: boolean;
-  // A Code step: shows its inputs and what it printed rather than the script it was saved with.
-  isCode: boolean;
-}) {
-  const finished = step.endedAt != null && step.status !== "RUNNING";
-  const duration =
-    step.startedAt != null ? (finished ? step.endedAt! : now) - step.startedAt : null;
-
-  return (
-    <div className="space-y-5">
-      <div className="flex flex-wrap items-center gap-2">
-        <StepStatusBadge step={step} />
-        {step.attempt > 1 && (
-          <span className="text-xs text-text-muted">{step.attempt} attempts</span>
-        )}
-        {duration != null && step.status !== "SKIPPED" && (
-          <span className="text-xs text-text-muted">
-            {finished ? "took" : "running for"} {formatDuration(duration)}
-          </span>
-        )}
-      </div>
-
-      {step.status === "RETRY_WAIT" && step.nextAttemptAt != null && (
-        <p className="text-xs text-amber-400">
-          Retrying in {formatDuration(Math.max(0, step.nextAttemptAt - now))}
-        </p>
-      )}
-      {step.status === "SKIPPED" && (
-        <p className="text-sm text-text-muted">
-          Skipped: no path leading to this step was taken in this run.
-        </p>
-      )}
-      {step.status === "CANCELLED" && (
-        <p className="text-sm text-text-muted">
-          Cancelled: another step failed before this one ran.
-        </p>
-      )}
-
-      {step.error && (
-        <JsonSection label={step.status === "FAILED" ? "Error" : "Last error"} tone="danger">
-          {step.error}
-        </JsonSection>
-      )}
-      {Array.isArray(step.output?.explain) && <Decision output={step.output!} />}
-      {isTrigger && step.output != null ? (
-        <TriggerData body={step.output.body} />
-      ) : isCode ? (
-        <CodeRunDetails step={step} />
-      ) : (
-        <>
-          {step.input != null && <JsonSection label="Input">{json(step.input)}</JsonSection>}
-          {step.output != null && <JsonSection label="Output">{json(step.output)}</JsonSection>}
-        </>
-      )}
-    </div>
-  );
-}
-
-function CodeRunDetails({ step }: { step: StepDetail }) {
-  const inputs = step.input?.inputs;
-  const logs = typeof step.output?.logs === "string" ? step.output.logs : "";
-  const returned = step.output ? Object.fromEntries(Object.entries(step.output).filter(([k]) => k !== "logs")) : null;
-  return (
-    <>
-      {step.input != null && (
-        <JsonSection label="Inputs">{inputs && typeof inputs === "object" ? json(inputs) : "None"}</JsonSection>
-      )}
-      {logs.trim() !== "" && <JsonSection label="Printed output">{logs}</JsonSection>}
-      {returned != null && <JsonSection label="Returned">{json(returned)}</JsonSection>}
-    </>
-  );
-}
-
-function JsonSection({
-  label,
-  tone,
-  children,
-}: {
-  label: string;
-  tone?: "danger";
-  children: React.ReactNode;
-}) {
-  return (
-    <div>
-      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-text-muted">{label}</p>
-      <pre
-        className={cn(
-          "max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-xl border px-4 py-3 font-mono text-xs leading-relaxed",
-          tone === "danger"
-            ? "border-red-500/30 bg-red-500/5 text-red-300"
-            : "border-border-strong bg-surface-sunken text-text"
-        )}
-      >
-        {children}
-      </pre>
-    </div>
-  );
-}
-
-function json(value: unknown) {
-  return JSON.stringify(value, null, 2);
-}
-
-type Explained = {
-  output: string;
-  name: string;
-  checked: boolean;
-  matched?: boolean;
-  match?: "all" | "any";
-  conditions?: { left: unknown; op: string; right: unknown; result: boolean }[];
-};
-
-// A Logic step's decision in words: which paths matched, and each condition with the values
-// it compared in this run.
-function Decision({ output }: { output: Record<string, unknown> }) {
-  const explain = output.explain as Explained[];
-  const matched = (output.matched as string[] | undefined) ?? [];
-  return (
-    <div>
-      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-text-muted">Decision</p>
-      <p className="mb-3 text-sm">
-        {matched.length > 0 ? (
-          <>
-            Followed <span className="font-semibold text-lemon">{matched.join(", ")}</span>
-          </>
-        ) : (
-          <span className="text-text-muted">Nothing matched, so the steps after it were skipped.</span>
-        )}
-      </p>
-      <div className="space-y-2">
-        {explain.map((e) => (
-          <div key={e.output} className="rounded-xl border border-border-strong bg-surface-sunken px-3 py-2.5 text-xs">
-            <p className="flex items-center justify-between gap-2 font-semibold">
-              <span className="truncate">{e.name}</span>
-              <span className={!e.checked ? "text-text-faint" : e.matched ? "text-emerald-400" : "text-text-muted"}>
-                {!e.checked ? "Not checked" : e.matched ? "Matched" : "Didn't match"}
-              </span>
-            </p>
-            {e.checked && e.conditions && (
-              <ul className="mt-1.5 space-y-1">
-                {e.conditions.map((c, i) => (
-                  <li key={i} className="flex items-start gap-1.5">
-                    <span className={c.result ? "text-emerald-400" : "text-red-400"}>{c.result ? "✓" : "✗"}</span>
-                    <span className="min-w-0 break-words font-mono">
-                      {show(c.left)} <span className="font-sans text-text-muted">{operatorLabel(c.op)}</span>
-                      {c.right != null && <> {show(c.right)}</>}
-                    </span>
-                  </li>
-                ))}
-                {e.conditions.length > 1 && (
-                  <li className="text-text-faint">{e.match === "any" ? "Any condition could match" : "All conditions had to match"}</li>
-                )}
-              </ul>
-            )}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function show(v: unknown) {
-  if (v === null || v === undefined || v === "") return "(empty)";
-  return typeof v === "string" ? `"${v}"` : JSON.stringify(v);
-}
-
-// What started the run (the webhook's body, or the app event's data), with the template each
-// field is used by in later steps.
-function TriggerData({ body }: { body: unknown }) {
-  const fields = body && typeof body === "object" && !Array.isArray(body) ? Object.entries(body as Record<string, unknown>) : [];
-  return (
-    <div className="space-y-4">
-      {fields.length > 0 && (
-        <div>
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-text-muted">Trigger data</p>
-          <dl className="divide-y divide-border overflow-hidden rounded-xl border border-border-strong bg-surface-sunken">
-            {fields.map(([key, value]) => (
-              <div key={key} className="px-4 py-2.5">
-                <dt className="font-mono text-[11px] text-lemon">{`{{trigger.body.${key}}}`}</dt>
-                <dd className="mt-0.5 break-words text-sm text-text">{preview(value)}</dd>
-              </div>
-            ))}
-          </dl>
-          <p className="mt-2 text-xs text-text-faint">Use these in later steps with Insert data, or type the template.</p>
-        </div>
-      )}
-      <JsonSection label={fields.length > 0 ? "Everything received" : "Trigger data"}>{json(body ?? null)}</JsonSection>
-    </div>
-  );
-}
-
-function preview(value: unknown) {
-  if (value === null || value === undefined || value === "") return <span className="text-text-faint">(empty)</span>;
-  const text = typeof value === "string" ? value : JSON.stringify(value);
-  return text.length > 160 ? text.slice(0, 160) + "…" : text;
 }

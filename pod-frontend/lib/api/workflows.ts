@@ -1,4 +1,4 @@
-import { backend, connector, webhooks } from "./client";
+import { backend, connector, webhooks, WEBHOOKS_URL } from "./client";
 import type { TriggerStatus, Workflow, WorkflowGraph } from "@/lib/types";
 
 export function listWorkflows(token: string) {
@@ -42,4 +42,10 @@ export function getTriggerStatus(workflowId: string, token: string) {
 
 export function triggerWorkflow(workflowId: string, payload: unknown = {}) {
   return webhooks.post<string>(`/trigger/${workflowId}`, payload);
+}
+
+// Where a Webhook-triggered workflow is called from outside: a POST whose JSON body (or a GET whose
+// query parameters) becomes the trigger data. Runs the workflow's saved version.
+export function webhookUrl(workflowId: string) {
+  return `${WEBHOOKS_URL}/trigger/${workflowId}`;
 }

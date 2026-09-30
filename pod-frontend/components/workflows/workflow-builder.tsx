@@ -170,6 +170,7 @@ export function WorkflowBuilder({ existing }: { existing?: Workflow }) {
           sources={sources}
           initialTab={panelTab}
           showMissing={showMissing}
+          workflow={existing ? { id: existing.id, version: existing.version ?? null, unsaved: dirty } : null}
           onClose={() => selectNode(null)}
           onChange={handleChangeStep}
         />

@@ -1,5 +1,5 @@
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8083";
-const WEBHOOKS_URL = process.env.NEXT_PUBLIC_WEBHOOKS_URL ?? "http://localhost:8080";
+export const WEBHOOKS_URL = process.env.NEXT_PUBLIC_WEBHOOKS_URL ?? "http://localhost:8080";
 const CONNECTOR_URL = process.env.NEXT_PUBLIC_CONNECTOR_URL ?? "http://localhost:8084";
 
 export class ApiError extends Error {

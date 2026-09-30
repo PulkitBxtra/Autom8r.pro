@@ -2,8 +2,9 @@
 
 import { use, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useNodesState, useEdgesState } from "@xyflow/react";
-import { ArrowLeft, History, Pencil, Play, X } from "lucide-react";
+import { ArrowLeft, History, Pencil, Play } from "lucide-react";
 import { Topbar } from "@/components/layout/topbar";
 import { Button } from "@/components/ui/button";
 import { FullPageSpinner } from "@/components/ui/spinner";
@@ -13,13 +14,8 @@ import { StepPanel } from "@/components/workflows/canvas/step-panel";
 import { StepConnectionsProvider } from "@/components/workflows/step-connections";
 import { TriggerSwitch } from "@/components/workflows/trigger-switch";
 import { useCatalog } from "@/lib/catalog-context";
-import { RunHistory } from "@/components/workflows/run-history";
-import { RunStatusBadge, RunStepsContext } from "@/components/workflows/run-status";
 import { useAuth } from "@/lib/auth-context";
 import { getWorkflow, triggerWorkflow } from "@/lib/api/workflows";
-import { isRunActive, isRunSettling } from "@/lib/api/runs";
-import { useRun, useRuns } from "@/hooks/use-runs";
-import { useNow } from "@/hooks/use-now";
 import {
   buildGraphFromWorkflow,
   upstreamSources,
@@ -30,6 +26,8 @@ import {
 import { ApiError } from "@/lib/api/client";
 import type { Workflow } from "@/lib/types";
 
+// A saved workflow: its steps on the canvas (each step's settings in the drawer), switching it
+// on, running it, and the way to its runs.
 export default function WorkflowDetailPage({
   params,
 }: {
@@ -37,14 +35,13 @@ export default function WorkflowDetailPage({
 }) {
   const { id } = use(params);
   const { token } = useAuth();
+  const router = useRouter();
   const [workflow, setWorkflow] = useState<Workflow | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
-  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
-  const [runsRefreshKey, setRunsRefreshKey] = useState(0);
 
   useEffect(() => {
     if (!token) return;
@@ -58,50 +55,22 @@ export default function WorkflowDetailPage({
       .finally(() => setLoading(false));
   }, [id, token]);
 
-  const { runs: listedRuns, loading: runsLoading, error: runsError } = useRuns(id, runsRefreshKey);
-  const { detail: runDetail } = useRun(selectedRunId);
-  // The selected run is polled more often than the list, so prefer its fresher
-  // summary -- otherwise the header and its history row can briefly disagree.
-  const runs = useMemo(
-    () => listedRuns.map((r) => (runDetail && r.id === runDetail.run.id ? runDetail.run : r)),
-    [listedRuns, runDetail]
-  );
-  const now = useNow(runs.some((r) => isRunActive(r.status)) || isRunSettling(runDetail));
-
-  // A run executes the version that was current when it was triggered. If that's
-  // not the version shown now, draw the run's own graph so its steps line up.
-  // Compared as JSON so a poll returning the same graph doesn't rebuild the canvas.
-  const runGraphJson =
-    runDetail?.graph && runDetail.run.workflowVersionId !== workflow?.currentVersionId
-      ? JSON.stringify(runDetail.graph)
-      : null;
   const catalog = useCatalog();
   // An app trigger (GitHub, Slack...) gets the on/off switch; the Webhook trigger is always on.
   const appTrigger = workflow?.graph?.nodes.find((n) => n.kind === "trigger" && n.appId && n.appId !== "app_webhook") ?? null;
   const graph = useMemo(() => {
     // Wait for the catalog so steps don't flash their stored fallback names first.
     if (!workflow || catalog.loading) return { nodes: [], edges: [] };
-    return buildGraphFromWorkflow(
-      runGraphJson ? { ...workflow, graph: JSON.parse(runGraphJson) } : workflow,
-      catalog
-    );
-  }, [workflow, runGraphJson, catalog]);
+    return buildGraphFromWorkflow(workflow, catalog);
+  }, [workflow, catalog]);
   const [nodes, setNodes, onNodesChange] = useNodesState(graph.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(graph.edges);
 
-  // useNodesState only reads its argument on the first render, before the
-  // workflow has loaded -- push the graph in once it arrives (and when switching
-  // to a run that ran a different version).
+  // useNodesState only reads its argument on the first render, before the workflow has loaded.
   useEffect(() => {
     setNodes(graph.nodes);
     setEdges(graph.edges);
   }, [graph, setNodes, setEdges]);
-
-  // Selected run's steps by node id; canvas nodes read their status from this.
-  const runSteps = useMemo(
-    () => (runDetail ? new Map(runDetail.steps.map((s) => [s.nodeId, s])) : null),
-    [runDetail]
-  );
 
   const { orderedActionNodes } = orderSteps(nodes, edges);
   const stepNumbers = useMemo(() => {
@@ -112,34 +81,18 @@ export default function WorkflowDetailPage({
   }, [orderedActionNodes]);
   const selectedNode = nodes.find((n) => n.id === selectedNodeId);
 
-  // Picking a run with no step open shows what started it: the trigger's panel, on its Test tab.
-  function selectRun(runId: string | null) {
-    setSelectedRunId(runId);
-    if (runId && !selectedNodeId) {
-      const trigger = nodes.find((n) => n.data.kind === "trigger");
-      if (trigger) setSelectedNodeId(trigger.id);
-    }
-  }
-
+  // Starts a run and opens it, to watch it execute.
   async function handleRun() {
     setRunning(true);
     setRunError(null);
     try {
-      const executionId = await triggerWorkflow(id, { source: "manual-test" });
-      // Jump straight to the new run and watch it execute.
-      selectRun(executionId);
-      setRunsRefreshKey((k) => k + 1);
+      const runId = await triggerWorkflow(id, { source: "manual-test" });
+      router.push(`/workflows/${id}/runs/${runId}`);
     } catch (err) {
       setRunError(err instanceof ApiError ? err.message : "Failed to trigger workflow");
-    } finally {
       setRunning(false);
     }
   }
-
-  const viewingOlderVersion =
-    runDetail?.run.version != null &&
-    workflow?.version != null &&
-    runDetail.run.version !== workflow.version;
 
   return (
     <StepConnectionsProvider>
@@ -154,117 +107,69 @@ export default function WorkflowDetailPage({
       )}
 
       {!loading && workflow && (
-        <div className="flex flex-1 flex-col overflow-hidden">
-          <div className="flex min-h-0 flex-[2]">
-            <div className="relative min-w-0 flex-1">
-              <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex items-start justify-between gap-4 p-5">
-                <div className="pointer-events-auto max-w-sm rounded-2xl border border-border-strong bg-surface-raised/90 p-4 shadow-xl backdrop-blur">
-                  <Link
-                    href="/workflows"
-                    className="mb-2 inline-flex items-center gap-1.5 text-xs font-medium text-text-muted hover:text-text"
-                  >
-                    <ArrowLeft className="size-3.5" />
-                    All workflows
-                  </Link>
-                  <h2 className="text-lg font-black">{workflow.name}</h2>
-                  <p className="mt-1 text-xs text-text-muted">
-                    {countActions(workflow) + 1} steps
-                    {workflow.version != null && <> · v{workflow.version}</>}
-                  </p>
+        <div className="flex min-h-0 flex-1">
+          <div className="relative min-w-0 flex-1">
+            <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex items-start justify-between gap-4 p-5">
+              <div className="pointer-events-auto max-w-sm rounded-2xl border border-border-strong bg-surface-raised/90 p-4 shadow-xl backdrop-blur">
+                <Link
+                  href="/workflows"
+                  className="mb-2 inline-flex items-center gap-1.5 text-xs font-medium text-text-muted hover:text-text"
+                >
+                  <ArrowLeft className="size-3.5" />
+                  All workflows
+                </Link>
+                <h2 className="text-lg font-black">{workflow.name}</h2>
+                <p className="mt-1 text-xs text-text-muted">
+                  {countActions(workflow) + 1} steps
+                  {workflow.version != null && <> · v{workflow.version}</>}
+                </p>
 
-                  {appTrigger && (
-                    <TriggerSwitch workflow={workflow} trigger={appTrigger} onChange={setWorkflow} />
-                  )}
-
-                  {selectedRunId && (
-                    <div className="mt-3 flex items-center gap-2 border-t border-border pt-3">
-                      {runDetail ? (
-                        <RunStatusBadge status={runDetail.run.status} />
-                      ) : (
-                        <span className="text-xs text-text-muted">Loading run…</span>
-                      )}
-                      <span className="min-w-0 truncate text-xs text-text-muted">
-                        Run <span className="font-mono">{selectedRunId.slice(-6)}</span>
-                        {viewingOlderVersion && (
-                          <span className="text-amber-400"> · ran on v{runDetail!.run.version}</span>
-                        )}
-                      </span>
-                      <button
-                        onClick={() => setSelectedRunId(null)}
-                        aria-label="Stop viewing this run"
-                        className="ml-auto flex size-6 shrink-0 items-center justify-center rounded-full text-text-muted transition-colors hover:bg-white/10 hover:text-text"
-                      >
-                        <X className="size-3.5" />
-                      </button>
-                    </div>
-                  )}
-                  {runDetail?.run.error && (
-                    <p className="mt-2 text-xs text-red-400">{runDetail.run.error}</p>
-                  )}
-                  {runError && <p className="mt-2 text-xs text-red-400">{runError}</p>}
-                </div>
-
-                <div className="pointer-events-auto flex items-center gap-2">
-                  <Button href={`/workflows/${workflow.id}/edit`} variant="outline">
-                    <Pencil className="size-4" />
-                    Edit
-                  </Button>
-                  <Button onClick={handleRun} loading={running} variant="secondary">
-                    <Play className="size-4" />
-                    Run now
-                  </Button>
-                </div>
+                {appTrigger && (
+                  <TriggerSwitch workflow={workflow} trigger={appTrigger} onChange={setWorkflow} />
+                )}
+                {runError && <p className="mt-2 text-xs text-red-400">{runError}</p>}
               </div>
 
-              <RunStepsContext.Provider value={runSteps}>
-                <WorkflowCanvas
-                  nodes={nodes}
-                  edges={edges}
-                  onNodesChange={onNodesChange}
-                  onEdgesChange={onEdgesChange}
-                  setNodes={() => {}}
-                  setEdges={() => {}}
-                  interactive={false}
-                  selectedNodeId={selectedNodeId}
-                  onSelectNode={setSelectedNodeId}
-                />
-              </RunStepsContext.Provider>
+              <div className="pointer-events-auto flex items-center gap-2">
+                <Button href={`/workflows/${workflow.id}/edit`} variant="outline">
+                  <Pencil className="size-4" />
+                  Edit
+                </Button>
+                <Button href={`/workflows/${workflow.id}/runs`} variant="outline">
+                  <History className="size-4" />
+                  Runs
+                </Button>
+                <Button onClick={handleRun} loading={running} variant="secondary">
+                  <Play className="size-4" />
+                  Run now
+                </Button>
+              </div>
             </div>
 
-            {selectedNode && (
-              <StepPanel
-                // Remount when switching runs so it reopens on the Test tab.
-                key={`${selectedNode.id}:${selectedRunId ?? ""}`}
-                node={selectedNode}
-                stepNumber={stepNumbers.get(selectedNode.id) ?? 1}
-                sources={upstreamSources(selectedNode.id, nodes, edges, stepNumbers)}
-                // Viewing a run: open on Test, even before the run's details have loaded.
-                initialTab={selectedRunId ? "test" : undefined}
-                readOnly
-                onClose={() => setSelectedNodeId(null)}
-                run={{
-                  selected: !!runDetail,
-                  step: runSteps?.get(selectedNode.id) ?? null,
-                  now,
-                }}
-              />
-            )}
-          </div>
-
-          <div className="flex-1 overflow-y-auto border-t border-border p-6">
-            <h3 className="mb-4 text-sm font-bold uppercase tracking-wide text-text-muted">
-              Run history
-            </h3>
-            <RunHistory
-              runs={runs}
-              loading={runsLoading}
-              error={runsError}
-              selectedRunId={selectedRunId}
-              currentVersion={workflow.version}
-              now={now}
-              onSelect={selectRun}
+            <WorkflowCanvas
+              nodes={nodes}
+              edges={edges}
+              onNodesChange={onNodesChange}
+              onEdgesChange={onEdgesChange}
+              setNodes={() => {}}
+              setEdges={() => {}}
+              interactive={false}
+              selectedNodeId={selectedNodeId}
+              onSelectNode={setSelectedNodeId}
             />
           </div>
+
+          {selectedNode && (
+            <StepPanel
+              key={selectedNode.id}
+              node={selectedNode}
+              stepNumber={stepNumbers.get(selectedNode.id) ?? 1}
+              sources={upstreamSources(selectedNode.id, nodes, edges, stepNumbers)}
+              readOnly
+              workflow={{ id: workflow.id, version: workflow.version ?? null }}
+              onClose={() => setSelectedNodeId(null)}
+            />
+          )}
         </div>
       )}
     </StepConnectionsProvider>

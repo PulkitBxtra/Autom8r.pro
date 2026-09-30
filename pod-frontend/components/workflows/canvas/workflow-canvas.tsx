@@ -248,9 +248,14 @@ export function WorkflowCanvas({
   // Memoized so unrelated re-renders (e.g. the panel opening) don't hand
   // ReactFlow a brand-new array reference and trigger it to redo internal
   // measurement/layout work every time.
+  // On a read-only canvas xyflow gives steps pointer-events: none (they can't be selected or
+  // dragged), which would swallow clicks meant to open a step; keep them clickable.
   const canvasNodes: CanvasNode[] = useMemo(
-    () => [...nodes, ...placeholders.nodes],
-    [nodes, placeholders.nodes]
+    () => [
+      ...(interactive ? nodes : nodes.map((n) => ({ ...n, style: { ...n.style, pointerEvents: "all" as const } }))),
+      ...placeholders.nodes,
+    ],
+    [nodes, placeholders.nodes, interactive]
   );
   const canvasEdges: WorkflowEdge[] = useMemo(
     () => [...edges, ...placeholders.edges],
