@@ -29,10 +29,11 @@ import java.time.temporal.TemporalAccessor;
 import java.util.*;
 import java.util.concurrent.TimeoutException;
 
-// Runs one Code step's Groovy script. pod-processor starts this jar as a fresh JVM for every run
-// (no environment, capped memory, killed after the timeout), so a script can never reach the
-// processor's secrets, memory or other users' runs. That process is the security boundary;
-// ScriptGuard (rejecting System, reflection, files, network... at compile time) is an extra layer.
+// Runs one Code step's Groovy script. SandboxServer starts this as a fresh JVM for every run
+// (ProcessRunner: no environment, capped memory, its own user id, killed after the timeout), in
+// a container with no network, so a script can never reach secrets, other pods or other users'
+// runs. That is the security boundary; ScriptGuard (rejecting System, reflection, files,
+// network... at compile time) is an extra layer.
 //
 // stdin:  {"script": "...", "bindings": {"name": value}, "timeoutSeconds": 10}
 // stdout: {"ok": true, "result": <what the script returned, as JSON>, "logs": "<println output>"}

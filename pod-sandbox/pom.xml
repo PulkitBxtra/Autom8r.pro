@@ -6,7 +6,7 @@
     <artifactId>pod-sandbox</artifactId>
     <version>0.0.1-SNAPSHOT</version>
     <name>pod-sandbox</name>
-    <description>Runs one user script (Code steps) in its own short-lived JVM, started by pod-processor</description>
+    <description>The Code-step service: runs each user script in its own short-lived, isolated JVM</description>
 
     <properties>
         <maven.compiler.release>21</maven.compiler.release>
@@ -44,7 +44,7 @@
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>3.5.2</version>
             </plugin>
-            <!-- One jar with Groovy inside: pod-processor starts it with java -jar. -->
+            <!-- One jar with Groovy inside: java -jar starts the service (SandboxServer), which runs each script with -cp in a fresh JVM (ScriptRunner). -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-shade-plugin</artifactId>
@@ -59,7 +59,7 @@
                             <createDependencyReducedPom>false</createDependencyReducedPom>
                             <transformers>
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
-                                    <mainClass>com.bxtralabs.pod.sandbox.ScriptRunner</mainClass>
+                                    <mainClass>com.bxtralabs.pod.sandbox.SandboxServer</mainClass>
                                 </transformer>
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
                             </transformers>

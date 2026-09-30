@@ -1,0 +1,206 @@
+# The whole platform in containers: docker compose -f deploy/docker-compose.yml --env-file deploy/.env up --build
+# (copy deploy/.env.example to deploy/.env first and fill it in).
+#
+# Networks:
+#   platform  every pod, Postgres and Kafka; pods that call apps (connector, processor) reach
+#             the internet through it
+#   sandbox   internal only: pod-processor and pod-sandbox, nothing else, no internet. Scripts
+#             in Code steps run there, so they can reach neither the internet nor any pod.
+#
+# Start order: Postgres, then pod-backend (it runs the Flyway migrations every pod shares), then
+# the other pods, which only validate the schema.
+#
+# Kafka: by default its own single-node broker (plain text, in the platform network). To use a
+# managed cluster instead (Aiven), set KAFKA_BOOTSTRAP_SERVERS, KAFKA_SECURITY_PROTOCOL=SSL and
+# put its ca.pem / service.cert / service.key in KAFKA_CERTS_DIR.
+
+x-java-pod: &java-pod
+  restart: unless-stopped
+  networks: [platform]
+  volumes:
+    # The Kafka SSL bundle's files (read at startup even when Kafka runs plain text).
+    - ${KAFKA_CERTS_DIR:-../kafka-certs}:/certs:ro
+
+x-db-env: &db-env
+  DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-autom8r}
+  DB_USERNAME: ${DB_USERNAME:-autom8r}
+  DB_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in deploy/.env}
+
+x-kafka-env: &kafka-env
+  KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
+  SPRING_KAFKA_SECURITY_PROTOCOL: ${KAFKA_SECURITY_PROTOCOL:-PLAINTEXT}
+  KAFKA_CA_CERT_LOCATION: file:/certs/ca.pem
+  KAFKA_ACCESS_CERT_LOCATION: file:/certs/service.cert
+  KAFKA_ACCESS_KEY_LOCATION: file:/certs/service.key
+
+x-started: &started
+  # A Spring pod is up once its port accepts connections.
+  interval: 5s
+  timeout: 3s
+  retries: 60
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-autom8r}
+      POSTGRES_USER: ${DB_USERNAME:-autom8r}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in deploy/.env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks: [platform]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  kafka:
+    image: apache/kafka:3.9.0
+    restart: unless-stopped
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://localhost:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+    networks: [platform]
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null 2>&1"]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+
+  pod-backend:
+    <<: *java-pod
+    build: ../pod-backend
+    environment:
+      <<: *db-env
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in deploy/.env}
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:?set INTERNAL_API_TOKEN in deploy/.env}
+      CONNECTOR_URL: http://pod-connector:8084
+      CORS_ALLOWED_ORIGINS: ${FRONTEND_URL:-http://localhost:3000}
+    ports: ["${BACKEND_PORT:-8083}:8083"]
+    depends_on:
+      postgres: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/8083' || exit 1"]
+      <<: *started
+
+  pod-webhooks:
+    <<: *java-pod
+    build: ../pod-webhooks
+    environment:
+      <<: [*db-env, *kafka-env]
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in deploy/.env}
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:?set INTERNAL_API_TOKEN in deploy/.env}
+      CORS_ALLOWED_ORIGINS: ${FRONTEND_URL:-http://localhost:3000}
+    ports: ["${WEBHOOKS_PORT:-8080}:8080"]
+    depends_on:
+      pod-backend: { condition: service_healthy }
+      kafka: { condition: service_healthy }
+
+  pod-workflow:
+    <<: *java-pod
+    build: ../pod-workflow
+    environment:
+      <<: [*db-env, *kafka-env]
+    depends_on:
+      pod-backend: { condition: service_healthy }
+      kafka: { condition: service_healthy }
+
+  pod-processor:
+    <<: *java-pod
+    build: ../pod-processor
+    networks: [platform, sandbox]
+    environment:
+      <<: [*db-env, *kafka-env]
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:?set INTERNAL_API_TOKEN in deploy/.env}
+      CONNECTOR_URL: http://pod-connector:8084
+      SANDBOX_URL: http://pod-sandbox:8090
+      SANDBOX_TOKEN: ${SANDBOX_TOKEN:?set SANDBOX_TOKEN in deploy/.env}
+      # HTTP steps only call public addresses (never the pods, Postgres or cloud metadata).
+      HTTP_ALLOW_PRIVATE: "false"
+    depends_on:
+      pod-backend: { condition: service_healthy }
+      kafka: { condition: service_healthy }
+      pod-sandbox: { condition: service_healthy }
+
+  pod-connector:
+    <<: *java-pod
+    build: ../pod-connector
+    environment:
+      <<: *db-env
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in deploy/.env}
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:?set INTERNAL_API_TOKEN in deploy/.env}
+      CONNECTIONS_ENCRYPTION_KEY: ${CONNECTIONS_ENCRYPTION_KEY:?set CONNECTIONS_ENCRYPTION_KEY in deploy/.env}
+      WEBHOOKS_URL: http://pod-webhooks:8080
+      CONNECTOR_PUBLIC_URL: ${CONNECTOR_PUBLIC_URL:-http://localhost:8084}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      CORS_ALLOWED_ORIGINS: ${FRONTEND_URL:-http://localhost:3000}
+      TRIGGERS_PUBLIC_URL: ${TRIGGERS_PUBLIC_URL:-}
+      GITHUB_OAUTH_CLIENT_ID: ${GITHUB_OAUTH_CLIENT_ID:-}
+      GITHUB_OAUTH_CLIENT_SECRET: ${GITHUB_OAUTH_CLIENT_SECRET:-}
+      SLACK_OAUTH_CLIENT_ID: ${SLACK_OAUTH_CLIENT_ID:-}
+      SLACK_OAUTH_CLIENT_SECRET: ${SLACK_OAUTH_CLIENT_SECRET:-}
+      SLACK_OAUTH_CALLBACK_URL: ${SLACK_OAUTH_CALLBACK_URL:-}
+      SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET:-}
+      NOTION_OAUTH_CLIENT_ID: ${NOTION_OAUTH_CLIENT_ID:-}
+      NOTION_OAUTH_CLIENT_SECRET: ${NOTION_OAUTH_CLIENT_SECRET:-}
+      GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID:-}
+      GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET:-}
+    ports: ["${CONNECTOR_PORT:-8084}:8084"]
+    depends_on:
+      pod-backend: { condition: service_healthy }
+
+  # Runs Code steps' scripts. Only pod-processor can reach it, and it can reach nothing: the
+  # sandbox network is internal. Each script runs as its own user id (setpriv), which is the only
+  # reason it keeps SETUID/SETGID (plus CHOWN/FOWNER/DAC_OVERRIDE to hand a run its directory
+  # and clean it up, and KILL to stop an overrunning script).
+  pod-sandbox:
+    build: ../pod-sandbox
+    restart: unless-stopped
+    networks: [sandbox]
+    environment:
+      SANDBOX_TOKEN: ${SANDBOX_TOKEN:?set SANDBOX_TOKEN in deploy/.env}
+      SANDBOX_CONCURRENCY: ${SANDBOX_CONCURRENCY:-4}
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+    cap_drop: [ALL]
+    cap_add: [SETUID, SETGID, CHOWN, FOWNER, DAC_OVERRIDE, KILL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 512
+    mem_limit: 1g
+    cpus: 2
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/8090' || exit 1"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  frontend:
+    build:
+      context: ../pod-frontend
+      args:
+        NEXT_PUBLIC_BACKEND_URL: ${PUBLIC_BACKEND_URL:-http://localhost:8083}
+        NEXT_PUBLIC_WEBHOOKS_URL: ${PUBLIC_WEBHOOKS_URL:-http://localhost:8080}
+        NEXT_PUBLIC_CONNECTOR_URL: ${CONNECTOR_PUBLIC_URL:-http://localhost:8084}
+    restart: unless-stopped
+    networks: [platform]
+    ports: ["${FRONTEND_PORT:-3000}:3000"]
+
+networks:
+  platform: {}
+  sandbox:
+    internal: true
+
+volumes:
+  pgdata: {}
