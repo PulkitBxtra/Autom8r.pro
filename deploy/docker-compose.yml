@@ -1,5 +1,11 @@
 # The whole platform in containers: docker compose -f deploy/docker-compose.yml --env-file deploy/.env up --build
-# (copy deploy/.env.example to deploy/.env first and fill it in).
+# (copy deploy/.env.example to deploy/.env first and fill it in). On a server, deploy/deploy.sh does
+# the same with images built one at a time.
+#
+# Public traffic goes through Caddy (ports 80/443, automatic HTTPS) to pod-backend, pod-webhooks and
+# pod-connector, one host name each (API_HOST, HOOKS_HOST, CONNECT_HOST). Every other published
+# port is bound to BIND_ADDRESS (127.0.0.1 by default), so only this machine reaches it. The frontend
+# is opt-in (--profile frontend) for when it isn't hosted elsewhere.
 #
 # Networks:
 #   platform  every pod, Postgres and Kafka; pods that call apps (connector, processor) reach
@@ -10,28 +16,30 @@
 # Start order: Postgres, then pod-backend (it runs the Flyway migrations every pod shares), then
 # the other pods, which only validate the schema.
 #
-# Kafka: by default its own single-node broker (plain text, in the platform network). To use a
-# managed cluster instead (Aiven), set KAFKA_BOOTSTRAP_SERVERS, KAFKA_SECURITY_PROTOCOL=SSL and
-# put its ca.pem / service.cert / service.key in KAFKA_CERTS_DIR.
+# Kafka: by default its own single-node broker (plain text, in the platform network, data kept in
+# the kafkadata volume). For a managed cluster (Aiven) add -f deploy/docker-compose.aiven.yml.
+
+# Each container's log is capped at 3 x 10 MB so a long-running server's disk doesn't fill up.
+x-logging: &logging
+  logging:
+    driver: json-file
+    options: { max-size: 10m, max-file: "3" }
 
 x-java-pod: &java-pod
+  <<: *logging
   restart: unless-stopped
   networks: [platform]
-  volumes:
-    # The Kafka SSL bundle's files (read at startup even when Kafka runs plain text).
-    - ${KAFKA_CERTS_DIR:-../kafka-certs}:/certs:ro
 
 x-db-env: &db-env
   DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-autom8r}
   DB_USERNAME: ${DB_USERNAME:-autom8r}
   DB_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in deploy/.env}
+  # The pods log every SQL statement in development; far too much for a server.
+  SPRING_JPA_SHOW_SQL: "false"
 
 x-kafka-env: &kafka-env
   KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
-  SPRING_KAFKA_SECURITY_PROTOCOL: ${KAFKA_SECURITY_PROTOCOL:-PLAINTEXT}
-  KAFKA_CA_CERT_LOCATION: file:/certs/ca.pem
-  KAFKA_ACCESS_CERT_LOCATION: file:/certs/service.cert
-  KAFKA_ACCESS_KEY_LOCATION: file:/certs/service.key
+  KAFKA_SECURITY_PROTOCOL: ${KAFKA_SECURITY_PROTOCOL:-PLAINTEXT}
 
 x-started: &started
   # A Spring pod is up once its port accepts connections.
@@ -41,6 +49,7 @@ x-started: &started
 
 services:
   postgres:
+    <<: *logging
     image: postgres:15-alpine
     restart: unless-stopped
     environment:
@@ -57,9 +66,14 @@ services:
       retries: 30
 
   kafka:
+    <<: *logging
     image: apache/kafka:3.9.0
     restart: unless-stopped
+    volumes:
+      - kafkadata:/var/lib/kafka/data
     environment:
+      # In a volume, so queued messages survive the container being recreated.
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
       KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
@@ -87,7 +101,7 @@ services:
       INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:?set INTERNAL_API_TOKEN in deploy/.env}
       CONNECTOR_URL: http://pod-connector:8084
       CORS_ALLOWED_ORIGINS: ${FRONTEND_URL:-http://localhost:3000}
-    ports: ["${BACKEND_PORT:-8083}:8083"]
+    ports: ["${BIND_ADDRESS:-127.0.0.1}:${BACKEND_PORT:-8083}:8083"]
     depends_on:
       postgres: { condition: service_healthy }
     healthcheck:
@@ -101,7 +115,7 @@ services:
       <<: [*db-env, *kafka-env]
       INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:?set INTERNAL_API_TOKEN in deploy/.env}
       CORS_ALLOWED_ORIGINS: ${FRONTEND_URL:-http://localhost:3000}
-    ports: ["${WEBHOOKS_PORT:-8080}:8080"]
+    ports: ["${BIND_ADDRESS:-127.0.0.1}:${WEBHOOKS_PORT:-8080}:8080"]
     depends_on:
       pod-backend: { condition: service_healthy }
       kafka: { condition: service_healthy }
@@ -158,7 +172,7 @@ services:
       NOTION_OAUTH_CLIENT_SECRET: ${NOTION_OAUTH_CLIENT_SECRET:-}
       GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID:-}
       GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET:-}
-    ports: ["${CONNECTOR_PORT:-8084}:8084"]
+    ports: ["${BIND_ADDRESS:-127.0.0.1}:${CONNECTOR_PORT:-8084}:8084"]
     depends_on:
       pod-backend: { condition: service_healthy }
 
@@ -167,6 +181,7 @@ services:
   # reason it keeps SETUID/SETGID (plus CHOWN/FOWNER/DAC_OVERRIDE to hand a run its directory
   # and clean it up, and KILL to stop an overrunning script).
   pod-sandbox:
+    <<: *logging
     build: ../pod-sandbox
     restart: unless-stopped
     networks: [sandbox]
@@ -189,6 +204,8 @@ services:
       retries: 30
 
   frontend:
+    <<: *logging
+    profiles: [frontend]
     build:
       context: ../pod-frontend
       args:
@@ -197,7 +214,25 @@ services:
         NEXT_PUBLIC_CONNECTOR_URL: ${CONNECTOR_PUBLIC_URL:-http://localhost:8084}
     restart: unless-stopped
     networks: [platform]
-    ports: ["${FRONTEND_PORT:-3000}:3000"]
+    ports: ["${BIND_ADDRESS:-127.0.0.1}:${FRONTEND_PORT:-3000}:3000"]
+
+  # HTTPS in front of the pods; certificates come from Let's Encrypt once each host name's DNS
+  # points here (the *.localhost defaults get a local certificate instead, for trying it out).
+  caddy:
+    <<: *logging
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    networks: [platform]
+    ports: ["80:80", "443:443", "443:443/udp"]
+    environment:
+      API_HOST: ${API_HOST:-api.localhost}
+      HOOKS_HOST: ${HOOKS_HOST:-hooks.localhost}
+      CONNECT_HOST: ${CONNECT_HOST:-connect.localhost}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [pod-backend, pod-webhooks, pod-connector]
 
 networks:
   platform: {}
@@ -206,3 +241,7 @@ networks:
 
 volumes:
   pgdata: {}
+  kafkadata: {}
+  # Caddy's certificates and ACME account; losing them means asking Let's Encrypt again.
+  caddy_data: {}
+  caddy_config: {}

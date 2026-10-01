@@ -1,0 +1,18 @@
+# Use a managed Kafka (Aiven, SSL/mTLS) instead of the stack's own broker:
+#   docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.aiven.yml --env-file deploy/.env up -d
+# Set KAFKA_BOOTSTRAP_SERVERS in deploy/.env and put ca.pem, service.cert and service.key in
+# KAFKA_CERTS_DIR (default: kafka-certs/ at the repo root).
+
+x-aiven: &aiven
+  environment:
+    KAFKA_SECURITY_PROTOCOL: SSL
+    KAFKA_CA_CERT_LOCATION: file:/certs/ca.pem
+    KAFKA_ACCESS_CERT_LOCATION: file:/certs/service.cert
+    KAFKA_ACCESS_KEY_LOCATION: file:/certs/service.key
+  volumes:
+    - ${KAFKA_CERTS_DIR:-../kafka-certs}:/certs:ro
+
+services:
+  pod-webhooks: *aiven
+  pod-workflow: *aiven
+  pod-processor: *aiven

@@ -1,0 +1,13 @@
+# One site per public host name (set in deploy/.env). Caddy gets and renews each certificate itself.
+{$API_HOST} {
+	encode zstd gzip
+	reverse_proxy pod-backend:8083
+}
+
+{$HOOKS_HOST} {
+	reverse_proxy pod-webhooks:8080
+}
+
+{$CONNECT_HOST} {
+	reverse_proxy pod-connector:8084
+}
