@@ -17,6 +17,7 @@ import {
   buildGraphFromWorkflow,
   buildInitialGraph,
   graphSnapshot,
+  joinNewPaths,
   reconcileOutputs,
   orderSteps,
   toWorkflowGraph,
@@ -44,9 +45,10 @@ export function WorkflowBuilder({ existing }: { existing?: Workflow }) {
   const [panelTab, setPanelTab] = useState<StepTab | undefined>(undefined);
   const [showMissing, setShowMissing] = useState(false);
 
-  const { trigger, orderedActionNodes } = orderSteps(nodes, edges);
+  const { orderedActionNodes } = orderSteps(nodes, edges);
   const dirty = name !== initialName || graphSnapshot(nodes, edges) !== initialSnapshot;
-  const canSave = !!trigger?.data.item && (!existing || dirty);
+  // Always clickable when there's something to save; saving says what's missing.
+  const canSave = !existing || dirty;
 
   // Closing or reloading the tab with unsaved edits asks first.
   useEffect(() => {
@@ -85,12 +87,13 @@ export function WorkflowBuilder({ existing }: { existing?: Workflow }) {
     const node = nodes.find((n) => n.id === selectedNodeId);
     if (!node) return;
     const data = { ...node.data, ...patch };
-    setNodes((nds) => nds.map((n) => (n.id === node.id ? { ...n, data } : n)));
-    setEdges((eds) => reconcileOutputs(eds, node.id, logicOutputs(data.item, data.parameters)));
+    const updated = nodes.map((n) => (n.id === node.id ? { ...n, data } : n));
+    setNodes(updated);
+    setEdges((eds) => joinNewPaths(updated, reconcileOutputs(eds, node.id, logicOutputs(data.item, data.parameters)), node.id));
   }
 
   async function handleSave() {
-    if (!token || !trigger?.data.item) return;
+    if (!token) return;
     setError(null);
 
     const result = toWorkflowGraph(nodes, edges);

@@ -7,11 +7,8 @@ import {
   Background,
   BackgroundVariant,
   Controls,
-  addEdge,
-  type Connection,
   type NodeChange,
   type EdgeChange,
-  type OnConnect,
   type OnEdgesChange,
   type OnNodesChange,
 } from "@xyflow/react";
@@ -20,15 +17,8 @@ import { GraphEdge } from "./graph-edge";
 import { PlaceholderNode as PlaceholderNodeComponent } from "./placeholder-node";
 import { PlaceholderEdge } from "./placeholder-edge";
 import { CanvasActionsContext } from "./canvas-actions-context";
-import {
-  createActionNodeId,
-  edgeId,
-  nextChildSlot,
-  NODE_WIDTH,
-  PLACEHOLDER_WIDTH,
-  TRIGGER_NODE_ID,
-} from "@/lib/workflow-graph";
-import { logicOutputs } from "@/lib/logic";
+import { createActionNodeId, edgeId, TRIGGER_NODE_ID } from "@/lib/workflow-graph";
+import { layoutWorkflow, PLACEHOLDER_WIDTH } from "@/lib/workflow-layout";
 import type {
   CanvasNode,
   PlaceholderNode,
@@ -60,12 +50,7 @@ export function WorkflowCanvas({
   selectedNodeId: string | null;
   onSelectNode: (nodeId: string | null) => void;
 }) {
-  const onConnect: OnConnect = useCallback(
-    (connection: Connection) => {
-      setEdges((eds) => addEdge({ ...connection, type: "workflowEdge" }, eds));
-    },
-    [setEdges]
-  );
+  const layout = useMemo(() => layoutWorkflow(nodes, edges), [nodes, edges]);
 
   // Opening a step to view/edit it is never destructive, so this works the
   // same whether the canvas is interactive or read-only.
@@ -80,146 +65,113 @@ export function WorkflowCanvas({
     (id: string) => {
       if (!interactive) return;
       if (id === TRIGGER_NODE_ID) return;
+      // A step with one way on (any plain step, or a Logic step whose paths are all empty) is
+      // cut out and the steps either side are joined, keeping the chain. A Logic step with
+      // steps on its paths can't be merged into one line, so what hung off them is left
+      // unconnected (saving points it out).
+      const next = new Set(edges.filter((e) => e.source === id).map((e) => e.target));
       setNodes((nds) => nds.filter((n) => n.id !== id));
-      setEdges((eds) => eds.filter((e) => e.id !== id && e.source !== id && e.target !== id));
+      setEdges((eds) => {
+        const kept = eds.filter((e) => e.source !== id && e.target !== id);
+        if (next.size > 1) return kept;
+        for (const into of eds.filter((e) => e.target === id)) {
+          for (const target of next) {
+            const joined = edgeId(into.source, target, into.sourceHandle);
+            if (kept.some((e) => e.id === joined)) continue;
+            kept.push({
+              id: joined,
+              source: into.source,
+              sourceHandle: into.sourceHandle ?? null,
+              target,
+              type: "workflowEdge",
+            });
+          }
+        }
+        return kept;
+      });
       if (id === selectedNodeId) onSelectNode(null);
     },
-    [interactive, setNodes, setEdges, selectedNodeId, onSelectNode]
+    [interactive, edges, setNodes, setEdges, selectedNodeId, onSelectNode]
+  );
+
+  // Where it goes is up to the layout.
+  const newStep = useCallback(
+    (): WorkflowNode => ({
+      id: createActionNodeId(nodes.map((n) => n.id)),
+      type: "workflowNode",
+      position: { x: 0, y: 0 },
+      data: { kind: "action" },
+    }),
+    [nodes]
   );
 
   const onQuickAdd = useCallback(
     (sourceId: string, handle?: string) => {
       if (!interactive) return;
-      const sourceNode = nodes.find((n) => n.id === sourceId);
-      if (!sourceNode) return;
-
-      const newId = createActionNodeId(nodes.map((n) => n.id));
-      const newNode: WorkflowNode = {
-        id: newId,
-        type: "workflowNode",
-        position: nextChildSlot(sourceNode, edges, handle),
-        data: { kind: "action" },
-      };
-      const newEdge: WorkflowEdge = {
-        id: edgeId(sourceId, newId, handle),
-        source: sourceId,
-        sourceHandle: handle ?? null,
-        target: newId,
-        type: "workflowEdge",
-      };
-
-      setNodes((nds) => [...nds, newNode]);
-      setEdges((eds) => [...eds, newEdge]);
-      onSelectNode(newId);
+      if (!nodes.some((n) => n.id === sourceId)) return;
+      const node = newStep();
+      setNodes((nds) => [...nds, node]);
+      setEdges((eds) => [
+        ...eds,
+        {
+          id: edgeId(sourceId, node.id, handle),
+          source: sourceId,
+          sourceHandle: handle ?? null,
+          target: node.id,
+          type: "workflowEdge",
+        },
+      ]);
+      onSelectNode(node.id);
     },
-    [interactive, nodes, edges, setNodes, setEdges, onSelectNode]
+    [interactive, nodes, newStep, setNodes, setEdges, onSelectNode]
   );
 
-  // Splits an existing connection in two around a freshly created node,
-  // so a branch can grow a step in the middle without deleting/redrawing.
+  // Adds the step a Logic step's paths meet at: every open end of its paths leads to it.
+  const onAddMerge = useCallback(
+    (blockId: string) => {
+      if (!interactive) return;
+      const node = newStep();
+      const joins = layout.openEndsOf(blockId).map(
+        (end): WorkflowEdge => ({
+          id: edgeId(end.source, node.id, end.handle),
+          source: end.source,
+          sourceHandle: end.handle ?? null,
+          target: node.id,
+          type: "workflowEdge",
+        })
+      );
+      setNodes((nds) => [...nds, node]);
+      setEdges((eds) => [...eds, ...joins]);
+      onSelectNode(node.id);
+    },
+    [interactive, layout, newStep, setNodes, setEdges, onSelectNode]
+  );
+
+  // Splits an existing connection in two around a freshly created node, so a branch can grow
+  // a step in the middle; the layout then moves everything below it down a row.
   const onInsertNode = useCallback(
     (id: string) => {
       if (!interactive) return;
       const edge = edges.find((e) => e.id === id);
       if (!edge) return;
-      const sourceNode = nodes.find((n) => n.id === edge.source);
-      const targetNode = nodes.find((n) => n.id === edge.target);
-      if (!sourceNode || !targetNode) return;
-
-      const newId = createActionNodeId(nodes.map((n) => n.id));
-      const newNode: WorkflowNode = {
-        id: newId,
-        type: "workflowNode",
-        position: {
-          x: (sourceNode.position.x + targetNode.position.x) / 2,
-          y: (sourceNode.position.y + targetNode.position.y) / 2,
-        },
-        data: { kind: "action" },
-      };
-
-      setNodes((nds) => [...nds, newNode]);
+      const node = newStep();
+      setNodes((nds) => [...nds, node]);
       setEdges((eds) => [
         ...eds.filter((e) => e.id !== id),
         // The new step takes the old edge's place under a Logic step's output.
         {
-          id: edgeId(edge.source, newId, edge.sourceHandle),
+          id: edgeId(edge.source, node.id, edge.sourceHandle),
           source: edge.source,
           sourceHandle: edge.sourceHandle ?? null,
-          target: newId,
+          target: node.id,
           type: "workflowEdge",
         },
-        { id: edgeId(newId, edge.target), source: newId, target: edge.target, type: "workflowEdge" },
+        { id: edgeId(node.id, edge.target), source: node.id, target: edge.target, type: "workflowEdge" },
       ]);
-      onSelectNode(newId);
+      onSelectNode(node.id);
     },
-    [interactive, edges, nodes, setNodes, setEdges, onSelectNode]
+    [interactive, edges, newStep, setNodes, setEdges, onSelectNode]
   );
-
-  // A dangling "add a step" affordance, shown only on true leaf nodes (no
-  // outgoing edge yet) -- a node that already has a child stays a plain,
-  // single line to it instead of also growing a branch invite. Computed
-  // fresh each render, never persisted.
-  const placeholders = useMemo(() => {
-    if (!interactive) return { nodes: [] as PlaceholderNode[], edges: [] as WorkflowEdge[] };
-    const sourceIds = new Set(edges.map((e) => e.source));
-    const phNodes: PlaceholderNode[] = [];
-    const phEdges: WorkflowEdge[] = [];
-    for (const node of nodes) {
-      // A Logic step invites a step under each of its outputs that has nothing yet.
-      const outputs = logicOutputs(node.data.item, node.data.parameters);
-      if (outputs) {
-        for (const out of outputs) {
-          if (edges.some((e) => e.source === node.id && e.sourceHandle === out.id)) continue;
-          const slot = nextChildSlot(node, edges, out.id);
-          const phId = `placeholder-${node.id}-${out.id}`;
-          phNodes.push({
-            id: phId,
-            type: "placeholderNode",
-            position: { x: slot.x + (NODE_WIDTH - PLACEHOLDER_WIDTH) / 2, y: slot.y },
-            data: { parentId: node.id, handle: out.id },
-            draggable: false,
-            selectable: false,
-            style: { pointerEvents: "all" },
-          });
-          phEdges.push({
-            id: `placeholder-edge-${node.id}-${out.id}`,
-            source: node.id,
-            sourceHandle: out.id,
-            target: phId,
-            type: "placeholderEdge",
-          });
-        }
-        continue;
-      }
-      if (sourceIds.has(node.id)) continue;
-      const slot = nextChildSlot(node, edges);
-      const phId = `placeholder-${node.id}`;
-      phNodes.push({
-        id: phId,
-        type: "placeholderNode",
-        // Centered under the node: the real card is NODE_WIDTH wide, the
-        // placeholder button is PLACEHOLDER_WIDTH wide, so their top-left
-        // x has to differ by half the gap or the connecting line bends.
-        position: {
-          x: slot.x + (NODE_WIDTH - PLACEHOLDER_WIDTH) / 2,
-          y: slot.y,
-        },
-        data: { parentId: node.id },
-        draggable: false,
-        selectable: false,
-        // Non-selectable/non-draggable nodes get pointer-events: none by
-        // default in xyflow -- override it so the add-step button is clickable.
-        style: { pointerEvents: "all" },
-      });
-      phEdges.push({
-        id: `placeholder-edge-${node.id}`,
-        source: node.id,
-        target: phId,
-        type: "placeholderEdge",
-      });
-    }
-    return { nodes: phNodes, edges: phEdges };
-  }, [nodes, edges, interactive]);
 
   const realNodeIds = useMemo(() => new Set(nodes.map((n) => n.id)), [nodes]);
   const realEdgeIds = useMemo(() => new Set(edges.map((e) => e.id)), [edges]);
@@ -241,25 +193,58 @@ export function WorkflowCanvas({
   );
 
   const actions = useMemo(
-    () => ({ interactive, selectedNodeId, onConfigure, onDelete, onQuickAdd, onInsertNode }),
-    [interactive, selectedNodeId, onConfigure, onDelete, onQuickAdd, onInsertNode]
+    () => ({ interactive, selectedNodeId, onConfigure, onDelete, onQuickAdd, onAddMerge, onInsertNode }),
+    [interactive, selectedNodeId, onConfigure, onDelete, onQuickAdd, onAddMerge, onInsertNode]
   );
 
   // Memoized so unrelated re-renders (e.g. the panel opening) don't hand
   // ReactFlow a brand-new array reference and trigger it to redo internal
   // measurement/layout work every time.
-  // On a read-only canvas xyflow gives steps pointer-events: none (they can't be selected or
-  // dragged), which would swallow clicks meant to open a step; keep them clickable.
+  // Steps can't be dragged, so xyflow would give them pointer-events: none on a read-only
+  // canvas and swallow clicks meant to open a step; keep them clickable.
+  // Add-step buttons and pending lines only show while editing.
   const canvasNodes: CanvasNode[] = useMemo(
     () => [
-      ...(interactive ? nodes : nodes.map((n) => ({ ...n, style: { ...n.style, pointerEvents: "all" as const } }))),
-      ...placeholders.nodes,
+      ...nodes.map((n) => ({
+        ...n,
+        position: layout.positions.get(n.id) ?? n.position,
+        style: { ...n.style, pointerEvents: "all" as const },
+      })),
+      ...(interactive
+        ? layout.placeholders.map(
+            (p): PlaceholderNode => ({
+              id: p.id,
+              type: "placeholderNode",
+              position: { x: p.x - PLACEHOLDER_WIDTH / 2, y: p.y },
+              data: { parentId: p.parentId, handle: p.handle, mergeOf: p.mergeOf },
+              draggable: false,
+              selectable: false,
+              // Non-selectable/non-draggable nodes get pointer-events: none by
+              // default in xyflow -- override it so the add-step button is clickable.
+              style: { pointerEvents: "all" },
+            })
+          )
+        : []),
     ],
-    [nodes, placeholders.nodes, interactive]
+    [nodes, layout, interactive]
   );
   const canvasEdges: WorkflowEdge[] = useMemo(
-    () => [...edges, ...placeholders.edges],
-    [edges, placeholders.edges]
+    () => [
+      ...edges.map((e) => ({ ...e, data: { ...e.data, route: layout.routes.get(e.id) } })),
+      ...(interactive
+        ? layout.ghostEdges.map(
+            (g): WorkflowEdge => ({
+              id: g.id,
+              source: g.source,
+              sourceHandle: g.sourceHandle,
+              target: g.target,
+              type: "placeholderEdge",
+              data: { route: g.route, add: g.add },
+            })
+          )
+        : []),
+    ],
+    [edges, layout, interactive]
   );
 
   return (
@@ -271,11 +256,10 @@ export function WorkflowCanvas({
             edges={canvasEdges}
             onNodesChange={handleNodesChange}
             onEdgesChange={handleEdgesChange}
-            onConnect={onConnect}
             nodeTypes={NODE_TYPES}
             edgeTypes={EDGE_TYPES}
-            nodesDraggable={interactive}
-            nodesConnectable={interactive}
+            nodesDraggable={false}
+            nodesConnectable={false}
             elementsSelectable={interactive}
             panOnDrag={false}
             panOnScroll

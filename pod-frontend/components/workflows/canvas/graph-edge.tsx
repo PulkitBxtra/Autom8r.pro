@@ -1,63 +1,33 @@
 "use client";
 
-import {
-  BaseEdge,
-  EdgeLabelRenderer,
-  getSmoothStepPath,
-  type EdgeProps,
-} from "@xyflow/react";
-import { Plus } from "lucide-react";
+import { BaseEdge, type EdgeProps } from "@xyflow/react";
+import { routePath, type EdgeRoute } from "@/lib/workflow-layout";
 import { useCanvasActions } from "./canvas-actions-context";
+import { EdgeLabels } from "./edge-labels";
 
-export function GraphEdge({
-  id,
-  sourceX,
-  sourceY,
-  targetX,
-  targetY,
-  sourcePosition,
-  targetPosition,
-  selected,
-}: EdgeProps) {
+export function GraphEdge({ id, sourceX, sourceY, targetX, targetY, selected, data }: EdgeProps) {
   const { interactive, onInsertNode } = useCanvasActions();
-  const [edgePath, labelX, labelY] = getSmoothStepPath({
-    sourceX,
-    sourceY,
-    targetX,
-    targetY,
-    sourcePosition,
-    targetPosition,
-    borderRadius: 12,
-  });
+  const route = data?.route as EdgeRoute | undefined;
+  const { path, x, labelY, addY } = routePath(sourceX, sourceY, targetX, targetY, route);
 
   return (
     <>
       <BaseEdge
         id={id}
-        path={edgePath}
+        path={path}
         style={{
           stroke: selected ? "var(--color-lemon)" : "var(--color-border-strong)",
           strokeWidth: 2,
         }}
       />
-      {interactive && (
-        <EdgeLabelRenderer>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onInsertNode(id);
-            }}
-            className="nodrag nopan absolute flex size-5 items-center justify-center rounded-full border border-border-strong bg-surface-sunken text-text-muted transition-colors hover:border-lemon hover:text-lemon"
-            style={{
-              transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
-              pointerEvents: "all",
-            }}
-            aria-label="Insert step here"
-          >
-            <Plus className="size-3" />
-          </button>
-        </EdgeLabelRenderer>
-      )}
+      <EdgeLabels
+        x={x}
+        labelY={labelY}
+        label={route?.label}
+        addY={addY}
+        onAdd={interactive ? () => onInsertNode(id) : undefined}
+        addLabel="Insert step here"
+      />
     </>
   );
 }

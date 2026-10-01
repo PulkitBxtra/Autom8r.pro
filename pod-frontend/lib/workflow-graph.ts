@@ -10,6 +10,7 @@ import type {
 import type { Catalog } from "@/lib/catalog";
 import { missingRequired, stepOutputs, type DataSource } from "@/lib/step-fields";
 import { logicOutputs } from "@/lib/logic";
+import { layoutWorkflow, ROW_HEIGHT } from "@/lib/workflow-layout";
 
 export type GraphNodeData = {
   kind: "trigger" | "action";
@@ -23,17 +24,13 @@ export type GraphNodeData = {
 
 export type WorkflowNode = Node<GraphNodeData, "workflowNode">;
 // handle: which output of a Logic step the new step would hang off (undefined for ordinary steps).
-export type PlaceholderNodeData = { parentId: string; handle?: string };
+// mergeOf: set on the button where a Logic step's paths meet; it adds the step they meet at.
+export type PlaceholderNodeData = { parentId: string; handle?: string; mergeOf?: string };
 export type PlaceholderNode = Node<PlaceholderNodeData, "placeholderNode">;
 export type CanvasNode = WorkflowNode | PlaceholderNode;
 export type WorkflowEdge = Edge;
 
 export const TRIGGER_NODE_ID = "trigger";
-export const CHILD_X_SPACING = 300;
-export const CHILD_Y_SPACING = 170;
-// Node card is w-64 (16rem); the placeholder add-step button is size-8 (2rem).
-export const NODE_WIDTH = 256;
-export const PLACEHOLDER_WIDTH = 32;
 
 // Short, since templates that read a step's output spell out its id ({{steps.<id>.output}}).
 export function createActionNodeId(existing: Iterable<string> = []) {
@@ -42,27 +39,6 @@ export function createActionNodeId(existing: Iterable<string> = []) {
     const id = `action-${crypto.randomUUID().slice(0, 8)}`;
     if (!taken.has(id)) return id;
   }
-}
-
-// Where the "add a step" affordance for a node's next (or next-branch) child
-// belongs -- reused by the quick-add flow and by the placeholder node/edge
-// pair so a placeholder always sits exactly where the real node will land.
-export function nextChildSlot(node: WorkflowNode, edges: WorkflowEdge[], handle?: string) {
-  // A Logic step's outputs fan out side by side, centred under it, one column per output.
-  const outputs = logicOutputs(node.data.item, node.data.parameters);
-  if (outputs && handle) {
-    const index = Math.max(0, outputs.findIndex((o) => o.id === handle));
-    const taken = edges.filter((e) => e.source === node.id && e.sourceHandle === handle).length;
-    return {
-      x: node.position.x + (index - (outputs.length - 1) / 2) * CHILD_X_SPACING + taken * 40,
-      y: node.position.y + CHILD_Y_SPACING,
-    };
-  }
-  const siblingCount = edges.filter((e) => e.source === node.id).length;
-  return {
-    x: node.position.x + siblingCount * CHILD_X_SPACING,
-    y: node.position.y + CHILD_Y_SPACING,
-  };
 }
 
 // Keeps a step's outgoing edges on outputs it still has, after its settings changed: edges of a
@@ -86,6 +62,26 @@ export function reconcileOutputs(
   });
 }
 
+// When a Logic step's paths already meet at a step, a path added to it (a Switch's new path)
+// leads straight there too, instead of ending on its own.
+export function joinNewPaths(nodes: WorkflowNode[], edges: WorkflowEdge[], nodeId: string): WorkflowEdge[] {
+  const node = nodes.find((n) => n.id === nodeId);
+  const outputs = node ? logicOutputs(node.data.item, node.data.parameters) : null;
+  const merge = outputs ? layoutWorkflow(nodes, edges).merges.get(nodeId) : undefined;
+  if (!outputs || !merge) return edges;
+  const missing = outputs.filter((o) => !edges.some((e) => e.source === nodeId && e.sourceHandle === o.id));
+  return [
+    ...edges,
+    ...missing.map((o) => ({
+      id: edgeId(nodeId, merge, o.id),
+      source: nodeId,
+      sourceHandle: o.id,
+      target: merge,
+      type: "workflowEdge",
+    })),
+  ];
+}
+
 export function edgeId(source: string, target: string, handle?: string | null) {
   return handle ? `edge-${source}-${handle}-${target}` : `edge-${source}-${target}`;
 }
@@ -104,26 +100,40 @@ export function buildInitialGraph(): { nodes: WorkflowNode[]; edges: WorkflowEdg
   };
 }
 
-// Breadth-first order from the trigger, used only to number steps in the UI
-// ("Step 3"). Execution order comes from the graph's edges, not from this.
+// Steps in the order they can run, from the trigger: a step comes after every step leading to
+// it, so the step where paths meet comes after all of them. Used only to number steps in the
+// UI ("Step 3"); execution order comes from the graph's edges.
 export function orderSteps(nodes: WorkflowNode[], edges: WorkflowEdge[]) {
   const trigger = nodes.find((n) => n.id === TRIGGER_NODE_ID);
   const outEdges = new Map<string, string[]>();
-
   for (const edge of edges) {
     outEdges.set(edge.source, [...(outEdges.get(edge.source) ?? []), edge.target]);
   }
 
-  const visited = new Set<string>();
-  const orderedIds: string[] = [];
-  const queue = trigger ? [...(outEdges.get(trigger.id) ?? [])] : [];
+  // Only steps reachable from the trigger are numbered, and only their edges count.
+  const reachable = new Set<string>();
+  const stack = trigger ? [trigger.id] : [];
+  while (stack.length > 0) {
+    const id = stack.pop()!;
+    if (reachable.has(id)) continue;
+    reachable.add(id);
+    stack.push(...(outEdges.get(id) ?? []));
+  }
+  const waiting = new Map<string, number>();
+  for (const e of edges) {
+    if (reachable.has(e.source)) waiting.set(e.target, (waiting.get(e.target) ?? 0) + 1);
+  }
 
+  const orderedIds: string[] = [];
+  const queue = trigger ? [trigger.id] : [];
   while (queue.length > 0) {
     const id = queue.shift()!;
-    if (visited.has(id)) continue;
-    visited.add(id);
-    orderedIds.push(id);
-    queue.push(...(outEdges.get(id) ?? []));
+    if (id !== TRIGGER_NODE_ID) orderedIds.push(id);
+    for (const next of outEdges.get(id) ?? []) {
+      const left = waiting.get(next)! - 1;
+      waiting.set(next, left);
+      if (left === 0) queue.push(next);
+    }
   }
 
   const byId = new Map(nodes.map((n) => [n.id, n]));
@@ -154,12 +164,32 @@ export function upstreamSources(
     queue.push(...(parents.get(id) ?? []));
   }
 
+  // A step on only some of the paths before this one (inside an If / Else's path, say) might
+  // not have run: this step is still reachable from the trigger without passing through it.
+  const children = new Map<string, string[]>();
+  for (const e of edges) children.set(e.source, [...(children.get(e.source) ?? []), e.target]);
+  const alwaysRuns = (stepId: string) => {
+    if (stepId === TRIGGER_NODE_ID) return true;
+    const seen = new Set<string>([stepId]);
+    const queue = [TRIGGER_NODE_ID];
+    while (queue.length > 0) {
+      const id = queue.shift()!;
+      if (id === nodeId) return false;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      queue.push(...(children.get(id) ?? []));
+    }
+    return true;
+  };
+
   return nodes
     .filter((n) => ancestors.has(n.id) && n.data.item)
     .sort((a, b) => (stepNumbers.get(a.id) ?? 0) - (stepNumbers.get(b.id) ?? 0))
     .map((n) => ({
       nodeId: n.id,
-      label: `${stepNumbers.get(n.id) ?? "?"}. ${n.data.item!.name}`,
+      label:
+        `${stepNumbers.get(n.id) ?? "?"}. ${n.data.item!.name}` +
+        (alwaysRuns(n.id) ? "" : " (only if its path ran)"),
       appId: n.data.app?.id,
       appName: n.data.app?.name ?? "",
       path: n.data.kind === "trigger" ? "trigger.body" : `steps.${n.id}.output`,
@@ -208,12 +238,17 @@ export function toWorkflowGraph(
 
   const unconfigured = keptNodes.find((n) => !isConfigured(n));
   if (unconfigured) {
+    const app = unconfigured.data.app;
     return {
       nodeId: unconfigured.id,
       error:
         unconfigured.data.kind === "trigger"
-          ? "Choose a trigger before saving"
-          : "A step in the middle of this workflow has no app selected",
+          ? app
+            ? `Choose which ${app.name} event starts this workflow before saving`
+            : "Choose a trigger before saving"
+          : app
+            ? `Choose what the ${app.name} step in the middle of this workflow does`
+            : "A step in the middle of this workflow has no app selected",
     };
   }
 
@@ -239,6 +274,8 @@ export function toWorkflowGraph(
     }
   }
 
+  // Stored for reference only; the canvas lays steps out itself.
+  const { positions } = layoutWorkflow(keptNodes, keptEdges);
   return {
     graph: {
       nodes: keptNodes.map(
@@ -251,7 +288,7 @@ export function toWorkflowGraph(
           // Actions run through their catalog handler; triggers have none.
           type: "handler" in n.data.item! ? n.data.item.handler : null,
           parameters: n.data.parameters ?? {},
-          position: { x: n.position.x, y: n.position.y },
+          position: positions.get(n.id) ?? { x: n.position.x, y: n.position.y },
           appId: n.data.app!.id,
           connectionId: n.data.connectionId ?? null,
         })
@@ -304,7 +341,7 @@ export function buildGraphFromWorkflow(workflow: Workflow, catalog: Catalog): {
       nodes: workflow.graph.nodes.map((n, i) => ({
         id: n.id,
         type: "workflowNode",
-        position: n.position ?? { x: 0, y: i * CHILD_Y_SPACING },
+        position: n.position ?? { x: 0, y: i * ROW_HEIGHT },
         data: {
           kind: n.kind,
           ...resolveNodeItem(n, catalog),
@@ -381,7 +418,7 @@ function buildLegacyGraph(workflow: Workflow, catalog: Catalog): {
     nodes.push({
       id: nodeId,
       type: "workflowNode",
-      position: { x: 0, y: (i + 1) * 170 },
+      position: { x: 0, y: (i + 1) * ROW_HEIGHT },
       data: { kind: "action", app, item },
     });
     edges.push({

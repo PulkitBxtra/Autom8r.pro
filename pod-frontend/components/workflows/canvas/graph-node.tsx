@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Handle, Position, type NodeProps } from "@xyflow/react";
+import { Handle, Position, useUpdateNodeInternals, type NodeProps } from "@xyflow/react";
 import { AlertTriangle, MoreVertical, Trash2, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AppLogo } from "@/components/ui/app-logo";
@@ -23,6 +23,14 @@ export function GraphNode({ id, data, selected }: NodeProps<WorkflowNode>) {
   const empty = !data.item;
   const outputs = logicOutputs(data.item, data.parameters);
   const isTrigger = data.kind === "trigger";
+  const updateNodeInternals = useUpdateNodeInternals();
+  const outputIds = outputs?.map((o) => o.id).join("|") ?? "";
+
+  // xyflow measures a step's connection points once; when they change (the step became an
+  // If / Else, or a path was added) it must re-measure, or lines from the new ones aren't drawn.
+  useEffect(() => {
+    updateNodeInternals(id);
+  }, [id, outputIds, updateNodeInternals]);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -122,27 +130,16 @@ export function GraphNode({ id, data, selected }: NodeProps<WorkflowNode>) {
       )}
 
       {outputs ? (
-        // One output per path, spread along the bottom edge, each labelled.
-        outputs.map((out, i) => {
-          const left = `${((i + 1) / (outputs.length + 1)) * 100}%`;
-          return (
-            <div key={out.id}>
-              <Handle
-                type="source"
-                id={out.id}
-                position={Position.Bottom}
-                style={{ left }}
-                className="!size-2.5 !border-2 !border-surface !bg-lemon"
-              />
-              <span
-                style={{ left }}
-                className="pointer-events-none absolute top-full mt-2 max-w-24 -translate-x-1/2 truncate rounded-full border border-border-strong bg-surface px-2 py-0.5 text-[10px] font-semibold text-text-muted"
-              >
-                {out.label}
-              </span>
-            </div>
-          );
-        })
+        // Every path leaves from one point; the lines below carry the path names.
+        outputs.map((out, i) => (
+          <Handle
+            key={out.id}
+            type="source"
+            id={out.id}
+            position={Position.Bottom}
+            className={cn("!size-2.5 !border-2 !border-surface !bg-lemon", i > 0 && "!opacity-0")}
+          />
+        ))
       ) : (
         <Handle
           type="source"

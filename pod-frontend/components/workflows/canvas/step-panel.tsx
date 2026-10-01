@@ -64,12 +64,14 @@ export function StepPanel({
 
   function handlePickApp(app: App) {
     // Changing the app resets the previously chosen event and account -- they
-    // belonged to the other app. With exactly one account for the new app, use it.
+    // belonged to the other app. With exactly one event or account for the new app, use it.
     const accounts = connections.filter((c) => c.appId === app.id);
+    const appEvents = isTrigger ? app.triggers : app.actions;
+    const only = appEvents.length === 1 ? appEvents[0] : undefined;
     onChange?.({
       app,
-      item: undefined,
-      parameters: {},
+      item: only,
+      parameters: only ? defaultParameters(only.fields) : {},
       connectionId: accounts.length === 1 ? accounts[0].id : null,
     });
     setAppPickerOpen(false);
