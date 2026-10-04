@@ -86,7 +86,7 @@ class OAuthServiceTest {
         cipher = new CredentialCipher(Base64.getEncoder().encodeToString(key), JSON);
         http = new ProviderHttp(JSON);
         registry = new ConnectorRegistry(ConnectorRegistry.defaults(http, new ConnectorRegistry.Endpoints(
-                base + "/api", "x", "x", "x", "x", "x")));
+                base + "/api", "x", "x", "x", "x", "x", "x")));
         oauth = service("client-1", "secret-1");
 
         when(states.save(any(OAuthState.class))).thenAnswer(inv -> {

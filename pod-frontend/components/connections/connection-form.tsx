@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { OAuthSection } from "@/components/connections/oauth-section";
+import { OAuthSection, type OAuthTarget } from "@/components/connections/oauth-section";
 import { useAuth } from "@/lib/auth-context";
 import {
   createConnection,
@@ -281,8 +281,9 @@ function useOAuthPopup({
   }, [waiting, app.appId]);
 
   // prepare: returns the user's OAuth app to sign in with (null = the server's), saving a new
-  // one first if needed. Runs after the pop-up is open so blockers still allow it.
-  async function open(prepare: () => Promise<string | null>) {
+  // one first if needed, and the workspace for apps that need one. Runs after the pop-up is
+  // open so blockers still allow it.
+  async function open(prepare: () => Promise<OAuthTarget>) {
     if (!token) return;
     handlers.current.onError(null);
     // Open synchronously in the click so pop-up blockers allow it; point it at the provider once
@@ -295,8 +296,8 @@ function useOAuthPopup({
     popupRef.current = popup;
     setWaiting(true);
     try {
-      const oauthClientId = await prepare();
-      const { authorizeUrl } = await startOAuth(app.appId, token, { connectionId, oauthClientId });
+      const { oauthClientId, workspaceId } = await prepare();
+      const { authorizeUrl } = await startOAuth(app.appId, token, { connectionId, oauthClientId, workspaceId });
       popup.location.href = authorizeUrl;
     } catch (err) {
       popup.close();

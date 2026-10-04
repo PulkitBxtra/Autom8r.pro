@@ -55,7 +55,7 @@ class OptionsServiceTest {
         server.start();
         String base = "http://127.0.0.1:" + server.getAddress().getPort();
         service = new OptionsService(connections, tokens, JsonMapper.builder().build(),
-                base + "/gh", base + "/slack", base + "/notion", base + "/discord", () -> now);
+                base + "/gh", base + "/slack", base + "/notion", base + "/discord", base + "/trello", base + "/trello-oauth", () -> now);
     }
 
     @AfterEach
@@ -190,6 +190,34 @@ class OptionsServiceTest {
                 new OptionsService.Option("2", "#general", "Acme · Text Channels"),
                 new OptionsService.Option("3", "#releases", "Acme · Text Channels")), got.options());
         assertTrue(calls.getFirst().endsWith(" Bot tok-con_d"), calls.getFirst());
+    }
+
+    @Test
+    void trelloListsAreTheOpenListsOfEachBoardInOrder() {
+        Connection c = account("con_t", "app_trello", "usr_1");
+        when(tokens.getValidCredentials("con_t")).thenReturn(Map.of("apiKey", "key-1", "token", "tok-1"));
+        answers.put("/trello/members/me/boards", "[{\"id\":\"b1\",\"name\":\"Roadmap\",\"lists\":["
+                + "{\"id\":\"l2\",\"name\":\"Done\",\"pos\":3000},{\"id\":\"l1\",\"name\":\"To do\",\"pos\":1000}]},"
+                + "{\"id\":\"b2\",\"name\":\"Empty\",\"lists\":[]}]");
+
+        OptionsService.Options got = service.options("usr_1", "con_t", "trello.lists", null);
+
+        assertEquals(List.of(new OptionsService.Option("l1", "To do", "Roadmap"), new OptionsService.Option("l2", "Done", "Roadmap")),
+                got.options());
+        assertTrue(calls.getFirst().endsWith(" OAuth oauth_consumer_key=\"key-1\", oauth_token=\"tok-1\""), calls.getFirst());
+        assertFalse(calls.getFirst().contains("tok-1&") || calls.getFirst().contains("token=tok"), "not in the URL");
+
+        // Signed in with Trello: an access token, no key, and Trello's OAuth address.
+        account("con_o", "app_trello", "usr_1");
+        answers.put("/trello-oauth/members/me/boards", "[{\"id\":\"b1\",\"name\":\"Roadmap\",\"lists\":[{\"id\":\"l1\",\"name\":\"To do\",\"pos\":1}]}]");
+        assertEquals(List.of(new OptionsService.Option("l1", "To do", "Roadmap")),
+                service.options("usr_1", "con_o", "trello.lists", null).options());
+        assertTrue(calls.getLast().startsWith("/trello-oauth/members/me/boards") && calls.getLast().endsWith(" Bearer tok-con_o"), calls.getLast());
+
+        answers.put("/trello/members/me/boards", "401:invalid token");
+        now += OptionsService.CACHE_MS;
+        assertThrows(ConnectionNeedsReauthException.class, () -> service.options("usr_1", "con_t", "trello.lists", ""));
+        verify(tokens).markRejected(eq("con_t"), eq("usr_1"), eq("app_trello"), eq(TokenService.version(c)), contains("Trello"));
     }
 
     @Test

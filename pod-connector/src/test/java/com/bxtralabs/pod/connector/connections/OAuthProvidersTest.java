@@ -33,4 +33,20 @@ class OAuthProvidersTest {
         assertEquals("http://localhost:8084/oauth/callback", tunnelled.callbackUrl("notion"));
         assertEquals("http://localhost:8084/oauth/callback", providers("slack-id", "").callbackUrl("slack"));
     }
+
+    @Test
+    void trelloSignsInThroughAtlassianWithPkceConsentAndJsonTokenRequests() {
+        OAuthProviders configured = new OAuthProviders("https://github.com", "", "", "repo", "", "",
+                "https://api.notion.com/v1", "", "", "https://slack.com", "", "", "", "",
+                "https://auth.atlassian.com/", "trello-id", "trello-secret", "http://localhost:8084");
+        OAuthProviders.Provider trello = configured.find("trello").orElseThrow();
+        assertEquals("https://auth.atlassian.com/authorize", trello.authorizeUrl());
+        assertEquals("https://auth.atlassian.com/oauth/token", trello.tokenUrl());
+        assertEquals(OAuthProviders.TokenStyle.JSON, trello.tokenStyle());
+        assertTrue(trello.pkce());
+        assertEquals("consent", trello.extraAuthorizeParams().get("prompt"));
+        assertEquals("read:member:trello read:board:trello write:board:trello offline_access", trello.scopes());
+        assertTrue(configured.isAvailable("trello"));
+        assertFalse(providers("", "").isAvailable("trello"), "not set up unless its client id and secret are");
+    }
 }

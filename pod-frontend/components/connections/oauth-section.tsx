@@ -11,11 +11,18 @@ import { cn } from "@/lib/utils";
 import type { AppConnection, ConnectorInfo, OAuthClient } from "@/lib/types";
 
 const NEW = "new";
+// A Trello workspace (organization) ID.
+const WORKSPACE_ID = /^[0-9a-f]{24}$/i;
+
+// What to sign in with: the user's OAuth app (null = the server's), and the workspace for apps
+// whose sign-in is for one (Trello).
+export type OAuthTarget = { oauthClientId: string | null; workspaceId?: string };
 
 // "Connect with <provider>", through the server's OAuth app or one of the user's own. With their
 // own, they create an app with the provider (registering our callback URL), paste its client
 // id/secret once, and pick it next time. `connect` opens the sign-in pop-up; it's handed a
-// function that returns which OAuth app to use (saving a new one first if needed).
+// function that returns which OAuth app to use (saving a new one first if needed). Apps whose
+// sign-in is for one workspace (Trello) ask for its ID first.
 export function OAuthSection({
   app,
   reconnect,
@@ -25,7 +32,7 @@ export function OAuthSection({
   app: ConnectorInfo;
   reconnect: AppConnection | null;
   waiting: boolean;
-  connect: (prepare: () => Promise<string | null>) => void;
+  connect: (prepare: () => Promise<OAuthTarget>) => void;
 }) {
   const { token } = useAuth();
   const providerName = app.oauthProviderName ?? "OAuth";
@@ -35,6 +42,7 @@ export function OAuthSection({
   const [clients, setClients] = useState<OAuthClient[] | null>(null);
   const [selected, setSelected] = useState<string>(reconnect?.oauthClientId ?? NEW);
   const [form, setForm] = useState({ name: "", clientId: "", clientSecret: "" });
+  const [workspace, setWorkspace] = useState("");
 
   useEffect(() => {
     if (!token || !app.oauthProvider) return;
@@ -53,9 +61,15 @@ export function OAuthSection({
   }, [token, app.oauthProvider]);
 
   const adding = source === "own" && selected === NEW;
-  const incomplete = adding && (!form.clientId.trim() || !form.clientSecret.trim());
+  const workspaceId = workspace.trim();
+  const workspaceMissing = !!app.oauthNeedsWorkspace && !WORKSPACE_ID.test(workspaceId);
+  const incomplete = workspaceMissing || (adding && (!form.clientId.trim() || !form.clientSecret.trim()));
 
-  async function prepare(): Promise<string | null> {
+  async function prepare(): Promise<OAuthTarget> {
+    return { oauthClientId: await oauthApp(), workspaceId: app.oauthNeedsWorkspace ? workspaceId : undefined };
+  }
+
+  async function oauthApp(): Promise<string | null> {
     if (source === "platform") return null;
     if (selected !== NEW) return selected;
     const created = await createOAuthClient(
@@ -126,6 +140,40 @@ export function OAuthSection({
             <NewAppForm app={app} form={form} onChange={setForm} />
           ) : (
             app.callbackUrl && <CopyField label="Callback URL" value={app.callbackUrl} />
+          )}
+        </div>
+      )}
+
+      {app.oauthNeedsWorkspace && (
+        <div>
+          <Label htmlFor="oauth-workspace">{providerName} workspace ID</Label>
+          <Input
+            id="oauth-workspace"
+            autoComplete="off"
+            spellCheck={false}
+            placeholder="24 letters and digits"
+            value={workspace}
+            onChange={(e) => setWorkspace(e.target.value)}
+            aria-invalid={workspaceId !== "" && workspaceMissing}
+            className="font-mono"
+          />
+          <p className="mt-1.5 text-xs text-text-muted">
+            {providerName} signs you in to one workspace. While signed in to {providerName}, open{" "}
+            <a
+              href="https://trello.com/1/members/me/organizations?fields=id,displayName"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 font-medium text-lemon hover:underline"
+            >
+              your workspaces
+              <ExternalLink className="size-3" />
+            </a>{" "}
+            and copy the <span className="font-mono">id</span> of the one to connect.
+          </p>
+          {workspaceId !== "" && workspaceMissing && (
+            <p role="alert" className="mt-1.5 text-xs text-red-300">
+              That isn&apos;t a workspace ID: it&apos;s 24 letters and digits (0-9, a-f).
+            </p>
           )}
         </div>
       )}

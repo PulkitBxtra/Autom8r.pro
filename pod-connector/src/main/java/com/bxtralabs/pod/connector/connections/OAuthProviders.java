@@ -19,18 +19,32 @@ public class OAuthProviders {
     // How a provider's token endpoint wants to be called (code exchange and refresh alike):
     //   FORM        form body carrying client_id and client_secret (GitHub, Google, RFC 6749)
     //   BASIC_JSON  client id:secret as HTTP Basic auth, JSON body without them (Notion)
-    public enum TokenStyle { FORM, BASIC_JSON }
+    //   JSON        JSON body carrying client_id and client_secret (Atlassian, for Trello)
+    public enum TokenStyle { FORM, BASIC_JSON, JSON }
 
     // setupUrl: where a user creates their own OAuth app with this provider.
     // pkce: whether it supports PKCE (code_challenge / code_verifier); Notion doesn't.
+    // workspaceResource: for providers whose sign-in is for one workspace the user names (Trello
+    // Power-Ups): the prefix of the "resource" sent with it, followed by the workspace ID.
     public record Provider(String id, String displayName, String authorizeUrl, String tokenUrl, String scopes,
                            String clientId, String clientSecret, Map<String, String> extraAuthorizeParams,
-                           String setupUrl, TokenStyle tokenStyle, boolean pkce) {
+                           String setupUrl, TokenStyle tokenStyle, boolean pkce, String workspaceResource) {
 
         public Provider(String id, String displayName, String authorizeUrl, String tokenUrl, String scopes,
                         String clientId, String clientSecret, Map<String, String> extraAuthorizeParams, String setupUrl) {
             this(id, displayName, authorizeUrl, tokenUrl, scopes, clientId, clientSecret, extraAuthorizeParams, setupUrl,
                     TokenStyle.FORM, true);
+        }
+
+        public Provider(String id, String displayName, String authorizeUrl, String tokenUrl, String scopes,
+                        String clientId, String clientSecret, Map<String, String> extraAuthorizeParams, String setupUrl,
+                        TokenStyle tokenStyle, boolean pkce) {
+            this(id, displayName, authorizeUrl, tokenUrl, scopes, clientId, clientSecret, extraAuthorizeParams, setupUrl,
+                    tokenStyle, pkce, null);
+        }
+
+        public boolean needsWorkspace() {
+            return workspaceResource != null;
         }
 
         public boolean configured() {
@@ -43,11 +57,21 @@ public class OAuthProviders {
     // Providers whose callback is somewhere else than <public-url>/oauth/callback (see Slack).
     private final Map<String, String> callbackOverrides = new LinkedHashMap<>();
 
-    // Without Notion's server app (tests that only care about GitHub/Google).
+    // Without Notion's, Slack's or Trello's server apps (tests that only care about GitHub/Google).
     public OAuthProviders(String githubOauthBase, String githubClientId, String githubClientSecret, String githubScopes,
                           String googleClientId, String googleClientSecret, String publicUrl) {
         this(githubOauthBase, githubClientId, githubClientSecret, githubScopes, googleClientId, googleClientSecret,
                 "https://api.notion.com/v1", "", "", "https://slack.com", "", "", "", "", publicUrl);
+    }
+
+    // Without Trello's server app (tests from before Trello sign-in).
+    public OAuthProviders(String githubOauthBase, String githubClientId, String githubClientSecret, String githubScopes,
+                          String googleClientId, String googleClientSecret, String notionOauthBase, String notionClientId,
+                          String notionClientSecret, String slackOauthBase, String slackClientId, String slackClientSecret,
+                          String slackScopes, String slackCallbackUrl, String publicUrl) {
+        this(githubOauthBase, githubClientId, githubClientSecret, githubScopes, googleClientId, googleClientSecret,
+                notionOauthBase, notionClientId, notionClientSecret, slackOauthBase, slackClientId, slackClientSecret,
+                slackScopes, slackCallbackUrl, "https://auth.atlassian.com", "", "", publicUrl);
     }
 
     @Autowired
@@ -65,6 +89,9 @@ public class OAuthProviders {
                           @Value("${connectors.slack.oauth.client-secret:}") String slackClientSecret,
                           @Value("${connectors.slack.oauth.scopes:}") String slackScopes,
                           @Value("${connectors.slack.oauth.callback-url:}") String slackCallbackUrl,
+                          @Value("${connectors.trello.oauth-base:https://auth.atlassian.com}") String trelloOauthBase,
+                          @Value("${connectors.trello.oauth.client-id:}") String trelloClientId,
+                          @Value("${connectors.trello.oauth.client-secret:}") String trelloClientSecret,
                           @Value("${app.public-url:http://localhost:8084}") String publicUrl) {
         // Every provider sends the browser back here, for the server's app and users' own apps
         // alike (the state says which sign-in it is). Must match what's registered exactly.
@@ -105,6 +132,19 @@ public class OAuthProviders {
                 slackClientId, slackClientSecret, Map.of(),
                 "https://api.slack.com/apps",
                 TokenStyle.FORM, false));
+        // Trello through Atlassian's OAuth 2.0 (a Power-Up's OAuth 2.0 tab, confidential client):
+        // PKCE, prompt=consent, JSON token requests. A Power-Up's sign-in is for one workspace,
+        // which the user names (resource=ari:cloud:trello::workspace/<id>; Atlassian refuses the
+        // sign-in without it). Access tokens last an hour; offline_access gets a refresh token
+        // (90 days), which Atlassian rotates on every refresh.
+        String atlassian = trelloOauthBase.replaceAll("/+$", "");
+        register(new Provider("trello", "Trello",
+                atlassian + "/authorize",
+                atlassian + "/oauth/token",
+                TRELLO_SCOPES, trelloClientId, trelloClientSecret,
+                Map.of("prompt", "consent"),
+                "https://trello.com/power-ups/admin",
+                TokenStyle.JSON, true, "ari:cloud:trello::workspace/"));
         // Slack only accepts https callbacks, so locally (http://localhost) its sign-in comes back
         // through a tunnel to this pod instead: https://<tunnel>/oauth/callback.
         if (slackCallbackUrl != null && !slackCallbackUrl.isBlank()) {
@@ -116,6 +156,9 @@ public class OAuthProviders {
     // channel messages and mentions.
     public static final String SLACK_SCOPES =
             "chat:write,channels:read,channels:history,app_mentions:read,im:write,users:read";
+
+    // What Trello steps need: name the account, read boards and lists, create and move cards.
+    public static final String TRELLO_SCOPES = "read:member:trello read:board:trello write:board:trello offline_access";
 
     private void register(Provider provider) {
         providers.put(provider.id(), provider);

@@ -33,14 +33,19 @@ export function deleteConnection(id: string, token: string) {
 
 // Returns the provider's sign-in URL to open in a popup. connectionId: reconnect that one.
 // oauthClientId: sign in through that OAuth app of the user's; omitted = the server's app.
+// workspaceId: the workspace to sign in to, for apps that need one (Trello).
 export function startOAuth(
   appId: string,
   token: string,
-  options: { connectionId?: string; oauthClientId?: string | null } = {}
+  options: { connectionId?: string; oauthClientId?: string | null; workspaceId?: string | null } = {}
 ) {
   return connector.post<{ authorizeUrl: string }>(
     `/oauth/${encodeURIComponent(appId)}/start`,
-    { connectionId: options.connectionId ?? null, oauthClientId: options.oauthClientId ?? null },
+    {
+      connectionId: options.connectionId ?? null,
+      oauthClientId: options.oauthClientId ?? null,
+      workspaceId: options.workspaceId ?? null,
+    },
     token
   );
 }

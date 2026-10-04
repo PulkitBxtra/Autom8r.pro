@@ -34,7 +34,7 @@ public class OAuthController {
                                      @RequestBody(required = false) StartRequest request) {
         String userId = userAuth.requireUserId(authorizationHeader);
         String url = oauthService.start(userId, appId, request == null ? null : request.connectionId(),
-                request == null ? null : request.oauthClientId());
+                request == null ? null : request.oauthClientId(), request == null ? null : request.workspaceId());
         return Map.of("authorizeUrl", url);
     }
 
@@ -65,7 +65,8 @@ public class OAuthController {
 
     // connectionId: reconnect that connection. oauthClientId: sign in through that OAuth app of
     // the user's instead of the server's.
-    public record StartRequest(String connectionId, String oauthClientId) {}
+    // workspaceId: for apps whose sign-in is for one workspace (Trello).
+    public record StartRequest(String connectionId, String oauthClientId, String workspaceId) {}
 
     private static String enc(String value) {
         return URLEncoder.encode(value, StandardCharsets.UTF_8);

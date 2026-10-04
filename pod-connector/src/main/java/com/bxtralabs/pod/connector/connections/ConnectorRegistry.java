@@ -6,8 +6,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
 import java.util.*;
 
 import static com.bxtralabs.pod.connector.connections.ProviderHttp.string;
@@ -19,8 +17,10 @@ import static com.bxtralabs.pod.connector.connections.ProviderHttp.string;
 @Component
 public class ConnectorRegistry {
 
-    // Base URLs for each provider's API.
-    public record Endpoints(String github, String slack, String notion, String stripe, String discord, String trello) {
+    // Base URLs for each provider's API. trelloOauth: Trello's API for OAuth 2.0 access tokens,
+    // which it serves from trello.com rather than api.trello.com.
+    public record Endpoints(String github, String slack, String notion, String stripe, String discord, String trello,
+                            String trelloOauth) {
     }
 
     public static final String SLACK_SIGNING_SECRET = "signingSecret";
@@ -34,8 +34,9 @@ public class ConnectorRegistry {
                              @Value("${connectors.notion.api-base:https://api.notion.com/v1}") String notion,
                              @Value("${connectors.stripe.api-base:https://api.stripe.com/v1}") String stripe,
                              @Value("${connectors.discord.api-base:https://discord.com/api/v10}") String discord,
-                             @Value("${connectors.trello.api-base:https://api.trello.com/1}") String trello) {
-        this(defaults(http, new Endpoints(github, slack, notion, stripe, discord, trello)));
+                             @Value("${connectors.trello.api-base:https://api.trello.com/1}") String trello,
+                             @Value("${connectors.trello.oauth-api-base:https://trello.com/1}") String trelloOauth) {
+        this(defaults(http, new Endpoints(github, slack, notion, stripe, discord, trello, trelloOauth)));
     }
 
     // For tests: a registry with specific connectors.
@@ -126,12 +127,18 @@ public class ConnectorRegistry {
                         secret("token", "Token", "", "Generate one from the same page (the \"Token\" link next to the API key).")),
                         "https://developer.atlassian.com/cloud/trello/guides/rest-api/api-introduction/",
                         creds -> {
-                            Map<String, Object> me = http.get("Trello", api.trello() + "/members/me?key="
-                                    + enc(creds.get("apiKey")) + "&token=" + enc(creds.get("token")), Map.of());
+                            // A key and token from the form; or, signing in with Trello, only the
+                            // OAuth 2.0 access token (passed as "token").
+                            Map<String, Object> me = creds.get("apiKey") == null
+                                    ? http.get("Trello", api.trelloOauth() + "/members/me?fields=fullName,username",
+                                            Map.of("Authorization", "Bearer " + creds.get("token")))
+                                    : http.get("Trello", api.trello() + "/members/me?fields=fullName,username",
+                                            Map.of("Authorization", "OAuth oauth_consumer_key=\"" + creds.get("apiKey")
+                                                    + "\", oauth_token=\"" + creds.get("token") + "\""));
                             String fullName = string(me, "fullName");
                             return fullName != null && !fullName.isBlank() ? fullName : "@" + string(me, "username");
                         }),
-                null));
+                "trello"));
 
         // Google only offers OAuth for these scopes, so no token form (A8 adds "Connect with Google").
         list.add(new Connector("app_gmail", "Gmail", "Send and watch email", null, "google"));
@@ -156,9 +163,5 @@ public class ConnectorRegistry {
 
     private static CredentialField secret(String key, String label, String placeholder, String help) {
         return new CredentialField(key, label, true, true, placeholder, help);
-    }
-
-    private static String enc(String value) {
-        return URLEncoder.encode(value == null ? "" : value, StandardCharsets.UTF_8);
     }
 }

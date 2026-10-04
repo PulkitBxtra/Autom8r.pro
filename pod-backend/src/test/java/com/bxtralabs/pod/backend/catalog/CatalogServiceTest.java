@@ -72,6 +72,10 @@ class CatalogServiceTest {
                 .orElseThrow().outputs().stream().map(CatalogOutput::key).toList(), "what GitHubHandler returns");
         assertEquals(List.of("id", "channelId", "content", "timestamp"), catalog.action("act_discord_post")
                 .orElseThrow().outputs().stream().map(CatalogOutput::key).toList(), "what DiscordHandler returns");
+        for (String trello : List.of("act_trello_create_card", "act_trello_move_card")) {
+            assertEquals(List.of("id", "name", "url", "listId", "boardId"), catalog.action(trello)
+                    .orElseThrow().outputs().stream().map(CatalogOutput::key).toList(), "what TrelloHandler returns");
+        }
     }
 
     // Account-backed choices only on text fields, and only lists of the step's own app's accounts.

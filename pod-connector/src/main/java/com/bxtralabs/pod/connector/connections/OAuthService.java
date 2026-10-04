@@ -21,7 +21,8 @@ import java.util.Map;
 // "Connect with <provider>": authorization code flow with PKCE, through either the server's
 // OAuth app or one of the user's own (OAuthClientService).
 //  1. start(): remember who's signing in under a random single-use `state`, plus a PKCE
-//     verifier; send the browser to the provider with the state and the verifier's hash.
+//     verifier (and the workspace, for providers that sign in to one); send the browser to the
+//     provider with the state and the verifier's hash.
 //  2. The provider sends the browser back to /oauth/callback with a code and the state.
 //  3. complete(): consume the state (unknown/used/expired -> rejected), exchange the code
 //     (+ client secret + PKCE verifier) for tokens, name the account, save the connection.
@@ -29,6 +30,8 @@ import java.util.Map;
 public class OAuthService {
 
     static final long STATE_TTL_MS = 10 * 60_000L;
+    // A Trello workspace (organization) ID.
+    private static final java.util.regex.Pattern WORKSPACE_ID = java.util.regex.Pattern.compile("[0-9a-fA-F]{24}");
 
     private final ConnectorRegistry registry;
     private final OAuthProviders providers;
@@ -54,6 +57,11 @@ public class OAuthService {
     // Returns the provider URL to open (in a popup). connectionId: reconnect that connection.
     // oauthClientId: sign in through that OAuth app of the user's; null uses the server's app.
     public String start(String userId, String appId, String connectionId, String oauthClientId) {
+        return start(userId, appId, connectionId, oauthClientId, null);
+    }
+
+    // workspaceId: the workspace to sign in to, for providers that need one (Trello).
+    public String start(String userId, String appId, String connectionId, String oauthClientId, String workspaceId) {
         if (!cipher.isConfigured()) {
             throw new ConnectionsNotConfiguredException();
         }
@@ -80,13 +88,21 @@ public class OAuthService {
         if (connectionId != null && !connections.owned(userId, connectionId).getAppId().equals(appId)) {
             throw new IllegalArgumentException("That connection belongs to a different app");
         }
+        String workspace = workspaceId == null ? "" : workspaceId.trim();
+        if (provider.needsWorkspace() && !WORKSPACE_ID.matcher(workspace).matches()) {
+            throw new IllegalArgumentException(workspace.isEmpty()
+                    ? "Enter the ID of the " + provider.displayName() + " workspace to connect"
+                    : "\"" + workspace + "\" isn't a " + provider.displayName() + " workspace ID (24 letters and digits, 0-9 and a-f)");
+        }
 
         long now = System.currentTimeMillis();
         states.deleteOlderThan(now - STATE_TTL_MS);
         String state = randomToken(32);
         String verifier = randomToken(48);
+        // The workspace rides along with the verifier, so the callback can name it too.
+        Map<String, String> secretState = provider.needsWorkspace() ? Map.of("v", verifier, "w", workspace) : Map.of("v", verifier);
         states.save(new OAuthState(state, userId, appId, provider.id(), connectionId, oauthClientId,
-                cipher.encrypt(Map.of("v", verifier)), now));
+                cipher.encrypt(secretState), now));
 
         Map<String, String> params = new LinkedHashMap<>();
         params.put("response_type", "code");
@@ -101,6 +117,9 @@ public class OAuthService {
             params.put("code_challenge_method", "S256");
         }
         params.putAll(provider.extraAuthorizeParams());
+        if (provider.needsWorkspace()) {
+            params.put("resource", provider.workspaceResource() + workspace);
+        }
         return provider.authorizeUrl() + "?" + query(params);
     }
 
@@ -145,8 +164,12 @@ public class OAuthService {
             params.put("grant_type", "authorization_code");
             params.put("code", code);
             params.put("redirect_uri", providers.callbackUrl(provider.id()));
+            Map<String, String> secretState = cipher.decrypt(s.getCodeVerifier());
             if (provider.pkce()) {
-                params.put("code_verifier", cipher.decrypt(s.getCodeVerifier()).get("v"));
+                params.put("code_verifier", secretState.get("v"));
+            }
+            if (provider.needsWorkspace() && secretState.get("w") != null) {
+                params.put("idOrganization", secretState.get("w"));
             }
             TokenResponse response = http.token(provider, client, params);
 

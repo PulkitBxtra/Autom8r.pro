@@ -610,24 +610,45 @@
         {
           "id": "act_trello_create_card",
           "name": "Create Card",
-          "comingSoon": true,
           "description": "Adds a card to a list.",
           "handler": "trello.create_card",
           "fields": [
-            { "key": "listId", "label": "List ID", "type": "text", "required": true },
+            { "key": "listId", "label": "List", "type": "text", "required": true, "placeholder": "List ID",
+              "optionsFrom": "trello.lists" },
             { "key": "name", "label": "Name", "type": "text", "required": true },
-            { "key": "description", "label": "Description", "type": "textarea" }
+            { "key": "description", "label": "Description", "type": "textarea", "help": "Markdown works." },
+            { "key": "position", "label": "Position", "type": "select", "defaultValue": "bottom",
+              "options": [ { "value": "bottom", "label": "Bottom of the list" }, { "value": "top", "label": "Top of the list" } ] },
+            { "key": "due", "label": "Due date", "type": "text", "placeholder": "2026-10-31 or 2026-10-31T17:00:00Z",
+              "help": "A date (midnight UTC), or a date and time with a time zone." }
+          ],
+          "outputs": [
+            { "key": "id", "label": "Card ID", "type": "text" },
+            { "key": "name", "label": "Card name", "type": "text" },
+            { "key": "url", "label": "Card link", "type": "text" },
+            { "key": "listId", "label": "List ID", "type": "text" },
+            { "key": "boardId", "label": "Board ID", "type": "text" }
           ]
         },
         {
           "id": "act_trello_move_card",
           "name": "Move Card",
-          "comingSoon": true,
-          "description": "Moves a card to another list.",
+          "description": "Moves a card to another list, on the same board or another one.",
           "handler": "trello.move_card",
           "fields": [
-            { "key": "cardId", "label": "Card ID", "type": "text", "required": true },
-            { "key": "listId", "label": "Destination list ID", "type": "text", "required": true }
+            { "key": "cardId", "label": "Card", "type": "text", "required": true, "placeholder": "Card ID or link",
+              "help": "Usually from an earlier step, e.g. Create Card's Card ID, or a link like https://trello.com/c/AbCd1234." },
+            { "key": "listId", "label": "Move to list", "type": "text", "required": true, "placeholder": "List ID",
+              "optionsFrom": "trello.lists" },
+            { "key": "position", "label": "Position", "type": "select", "defaultValue": "bottom",
+              "options": [ { "value": "bottom", "label": "Bottom of the list" }, { "value": "top", "label": "Top of the list" } ] }
+          ],
+          "outputs": [
+            { "key": "id", "label": "Card ID", "type": "text" },
+            { "key": "name", "label": "Card name", "type": "text" },
+            { "key": "url", "label": "Card link", "type": "text" },
+            { "key": "listId", "label": "List ID", "type": "text" },
+            { "key": "boardId", "label": "Board ID", "type": "text" }
           ]
         }
       ]

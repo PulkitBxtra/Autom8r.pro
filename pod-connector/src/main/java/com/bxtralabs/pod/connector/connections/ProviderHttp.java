@@ -65,6 +65,15 @@ public class ProviderHttp {
                     .POST(HttpRequest.BodyPublishers.ofString(jsonMapper.writeValueAsString(body))).build();
             return exchange(provider.displayName(), request);
         }
+        if (provider.tokenStyle() == OAuthProviders.TokenStyle.JSON) {
+            Map<String, String> body = new java.util.LinkedHashMap<>();
+            params.forEach((k, v) -> { if (v != null) body.put(k, v); });
+            body.put("client_id", client.clientId());
+            body.put("client_secret", client.clientSecret());
+            HttpRequest request = request(provider.tokenUrl(), Map.of("Content-Type", "application/json"))
+                    .POST(HttpRequest.BodyPublishers.ofString(jsonMapper.writeValueAsString(body))).build();
+            return exchange(provider.displayName(), request);
+        }
         Map<String, String> form = new java.util.LinkedHashMap<>(params);
         form.put("client_id", client.clientId());
         form.put("client_secret", client.clientSecret());

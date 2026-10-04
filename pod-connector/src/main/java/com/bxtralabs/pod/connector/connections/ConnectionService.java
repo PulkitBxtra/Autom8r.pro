@@ -41,10 +41,11 @@ public class ConnectionService {
     //  platformOAuthAvailable: the server's own OAuth app for it is configured too.
     //  oauthProviderName: for the "Connect with GitHub" button.
     //  oauthSetupUrl / callbackUrl: where to create an OAuth app, and the callback URL to register in it.
+    //  oauthNeedsWorkspace: signing in is for one workspace, whose ID the user enters first (Trello).
     public record ConnectorView(String appId, String name, String description, List<CredentialField> tokenFields,
                                 String docsUrl, String oauthProvider, String oauthProviderName,
                                 boolean oauthAvailable, boolean platformOAuthAvailable,
-                                String oauthSetupUrl, String callbackUrl) {
+                                String oauthSetupUrl, String callbackUrl, boolean oauthNeedsWorkspace) {
     }
 
     public List<ConnectorView> connectors() {
@@ -59,7 +60,8 @@ public class ConnectionService {
                     provider != null,
                     provider != null && provider.configured(),
                     provider == null ? null : provider.setupUrl(),
-                    provider == null ? null : oauthProviders.callbackUrl(provider.id()));
+                    provider == null ? null : oauthProviders.callbackUrl(provider.id()),
+                    provider != null && provider.needsWorkspace());
         }).toList();
     }
 

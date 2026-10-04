@@ -11,7 +11,6 @@ import tools.jackson.databind.json.JsonMapper;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
-import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -43,16 +42,6 @@ class ConnectorRegistryTest {
         m.put("notion-version", String.valueOf(ex.getRequestHeaders().getFirst("Notion-Version")));
         m.put("query", String.valueOf(ex.getRequestURI().getRawQuery()));
         seen.put(provider, m);
-    }
-
-    private static Map<String, String> query(String raw) {
-        Map<String, String> q = new HashMap<>();
-        if (raw == null) return q;
-        for (String pair : raw.split("&")) {
-            String[] kv = pair.split("=", 2);
-            q.put(URLDecoder.decode(kv[0], StandardCharsets.UTF_8), kv.length > 1 ? URLDecoder.decode(kv[1], StandardCharsets.UTF_8) : "");
-        }
-        return q;
     }
 
     @BeforeEach
@@ -87,11 +76,17 @@ class ConnectorRegistryTest {
         });
         server.createContext("/trello/members/me", ex -> {
             record("trello", ex);
-            Map<String, String> q = query(ex.getRequestURI().getRawQuery());
-            if (!"key1".equals(q.get("key"))) { respond(ex, 401, "invalid key"); return; }
-            if ("tok&weird=1".equals(q.get("token"))) respond(ex, 200, "{\"fullName\":\"\",\"username\":\"pb\"}");
-            else if ("good".equals(q.get("token"))) respond(ex, 200, "{\"fullName\":\"Pulkit B\",\"username\":\"pb\"}");
+            java.util.regex.Matcher m = java.util.regex.Pattern.compile("OAuth oauth_consumer_key=\"(.*)\", oauth_token=\"(.*)\"")
+                    .matcher(String.valueOf(ex.getRequestHeaders().getFirst("Authorization")));
+            if (!m.matches() || !"key1".equals(m.group(1))) { respond(ex, 401, "invalid key"); return; }
+            if ("tok&weird=1".equals(m.group(2))) respond(ex, 200, "{\"fullName\":\"\",\"username\":\"pb\"}");
+            else if ("good".equals(m.group(2))) respond(ex, 200, "{\"fullName\":\"Pulkit B\",\"username\":\"pb\"}");
             else respond(ex, 401, "invalid token");
+        });
+        server.createContext("/trello-oauth/members/me", ex -> {
+            record("trello-oauth", ex);
+            boolean ok = "Bearer access-1".equals(ex.getRequestHeaders().getFirst("Authorization"));
+            respond(ex, ok ? 200 : 401, ok ? "{\"fullName\":\"Pulkit B\",\"username\":\"pb\"}" : "invalid token");
         });
         server.createContext("/broken/user", ex -> respond(ex, 500, "{}"));
         server.createContext("/html/user", ex -> {
@@ -103,7 +98,7 @@ class ConnectorRegistryTest {
         String base = "http://127.0.0.1:" + server.getAddress().getPort();
         ProviderHttp http = new ProviderHttp(JsonMapper.builder().build());
         registry = new ConnectorRegistry(ConnectorRegistry.defaults(http, new ConnectorRegistry.Endpoints(
-                base + "/github", base + "/slack", base + "/notion", base + "/stripe", base + "/discord", base + "/trello")));
+                base + "/github", base + "/slack", base + "/notion", base + "/stripe", base + "/discord", base + "/trello", base + "/trello-oauth")));
     }
 
     @AfterEach
@@ -196,13 +191,19 @@ class ConnectorRegistryTest {
     }
 
     @Test
-    void trelloPassesKeyAndTokenAsEncodedQueryParams() {
+    void trelloSendsKeyAndTokenInTheHeaderNotTheUrl() {
         assertEquals("Pulkit B", verify("app_trello", Map.of("apiKey", "key1", "token", "good")));
-        // A token containing & and = must not break the query string.
         assertEquals("@pb", verify("app_trello", Map.of("apiKey", "key1", "token", "tok&weird=1")));
         String message = rejection("app_trello", Map.of("apiKey", "key1", "token", "leaky-secret"));
         assertTrue(message.contains("Trello rejected"));
-        assertFalse(message.contains("leaky-secret"), "the token in the URL must not reach the error message");
+        assertFalse(message.contains("leaky-secret"), "the token must not reach the error message");
+    }
+
+    // Signing in with Trello names the account with only the access token, on Trello's OAuth address.
+    @Test
+    void aTrelloSignInIsNamedWithItsAccessToken() {
+        assertEquals("Pulkit B", verify("app_trello", Map.of("token", "access-1")));
+        assertEquals("trello", registry.find("app_trello").orElseThrow().oauthProvider());
     }
 
     @Test

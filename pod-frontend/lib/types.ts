@@ -232,6 +232,8 @@ export type ConnectorInfo = {
   // Where to create an OAuth app with the provider, and the callback URL to register in it.
   oauthSetupUrl: string | null;
   callbackUrl: string | null;
+  // Signing in is for one workspace, whose ID the user enters first (Trello).
+  oauthNeedsWorkspace?: boolean;
 };
 
 export type ConnectionStatus = "ACTIVE" | "NEEDS_REAUTH";

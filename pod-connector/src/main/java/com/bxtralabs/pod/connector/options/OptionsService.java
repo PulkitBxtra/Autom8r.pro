@@ -23,7 +23,7 @@ import java.util.function.LongSupplier;
 
 // Choices for a step setting, read from the step's account: the Slack channels a bot can see,
 // the GitHub repositories a token can reach, the Notion databases and pages shared with an
-// integration, the Discord channels a bot can post in... The catalog names the list on the field (optionsFrom). Each option's value is
+// integration, the Discord channels a bot can post in, the lists on a member's Trello boards... The catalog names the list on the field (optionsFrom). Each option's value is
 // what the step saves (an id, or owner/repo), its label what the user reads.
 // Lists are kept for a minute per account, so typing in the search box doesn't call the app on
 // every key; Notion is searched by the app itself, since a workspace can hold thousands of pages.
@@ -45,7 +45,8 @@ public class OptionsService {
             "notion.databases", "app_notion",
             "notion.pages", "app_notion",
             "notion.parents", "app_notion",
-            "discord.channels", "app_discord");
+            "discord.channels", "app_discord",
+            "trello.lists", "app_trello");
 
     static final int LIMIT = 100;
     static final long CACHE_MS = 60_000;
@@ -58,6 +59,8 @@ public class OptionsService {
     private final String slackApi;
     private final String notionApi;
     private final String discordApi;
+    private final String trelloApi;
+    private final String trelloOauthApi;
     private final LongSupplier clock;
     private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
     private final Map<String, Cached> cache = new ConcurrentHashMap<>();
@@ -70,12 +73,16 @@ public class OptionsService {
                           @Value("${connectors.github.api-base:https://api.github.com}") String githubApi,
                           @Value("${connectors.slack.api-base:https://slack.com/api}") String slackApi,
                           @Value("${connectors.notion.api-base:https://api.notion.com/v1}") String notionApi,
-                          @Value("${connectors.discord.api-base:https://discord.com/api/v10}") String discordApi) {
-        this(connections, tokens, jsonMapper, githubApi, slackApi, notionApi, discordApi, System::currentTimeMillis);
+                          @Value("${connectors.discord.api-base:https://discord.com/api/v10}") String discordApi,
+                          @Value("${connectors.trello.api-base:https://api.trello.com/1}") String trelloApi,
+                          @Value("${connectors.trello.oauth-api-base:https://trello.com/1}") String trelloOauthApi) {
+        this(connections, tokens, jsonMapper, githubApi, slackApi, notionApi, discordApi, trelloApi, trelloOauthApi,
+                System::currentTimeMillis);
     }
 
     OptionsService(ConnectionRepository connections, TokenService tokens, JsonMapper jsonMapper,
-                   String githubApi, String slackApi, String notionApi, String discordApi, LongSupplier clock) {
+                   String githubApi, String slackApi, String notionApi, String discordApi, String trelloApi,
+                   String trelloOauthApi, LongSupplier clock) {
         this.connections = connections;
         this.tokens = tokens;
         this.jsonMapper = jsonMapper;
@@ -83,6 +90,8 @@ public class OptionsService {
         this.slackApi = slackApi.replaceAll("/+$", "");
         this.notionApi = notionApi.replaceAll("/+$", "");
         this.discordApi = discordApi.replaceAll("/+$", "");
+        this.trelloApi = trelloApi.replaceAll("/+$", "");
+        this.trelloOauthApi = trelloOauthApi.replaceAll("/+$", "");
         this.clock = clock;
     }
 
@@ -124,7 +133,7 @@ public class OptionsService {
         String token = credentials.get("access_token") != null ? credentials.get("access_token") : credentials.get("token");
         // Taken after getValidCredentials, which may have just refreshed the token.
         Connection current = connections.findById(c.getId()).orElse(c);
-        Account account = new Account(current, token, TokenService.version(current));
+        Account account = new Account(current, token, credentials.get("apiKey"), TokenService.version(current));
         return switch (source) {
             case "slack.channels" -> slackChannels(account);
             case "slack.users" -> slackUsers(account);
@@ -133,11 +142,13 @@ public class OptionsService {
             case "notion.pages" -> notion(account, query, "page");
             case "notion.parents" -> notion(account, query, null);
             case "discord.channels" -> discordChannels(account);
+            case "trello.lists" -> trelloLists(account);
             default -> throw new NotFoundException("Unknown list: " + source);
         };
     }
 
-    private record Account(Connection connection, String token, String version) {
+    // apiKey: the key that goes with the token, for apps that need both (Trello).
+    private record Account(Connection connection, String token, String apiKey, String version) {
     }
 
     // ---- Slack ----
@@ -345,6 +356,34 @@ public class OptionsService {
         return r;
     }
 
+    // ---- Trello ----
+
+    // The open lists on the member's open boards, board by board as Trello orders them. With a key
+    // and token from the form, or an access token from signing in with Trello (no key).
+    private List<Option> trelloLists(Account a) {
+        boolean oauth = a.apiKey() == null;
+        Response r = send(HttpRequest.newBuilder(URI.create((oauth ? trelloOauthApi : trelloApi)
+                        + "/members/me/boards?filter=open&fields=name&lists=open&list_fields=name,pos"))
+                .header("Authorization", oauth ? "Bearer " + a.token()
+                        : "OAuth oauth_consumer_key=\"" + a.apiKey() + "\", oauth_token=\"" + a.token() + "\"")
+                .header("Accept", "application/json")
+                .GET(), "Trello");
+        if (r.status() == 401) {
+            rejected(a, "Trello rejected the key and token");
+        }
+        if (r.status() != 200) {
+            throw new OptionsException(502, "Trello couldn't list boards (HTTP " + r.status() + ")");
+        }
+        List<Option> out = new ArrayList<>();
+        for (Object b : r.list()) {
+            if (!(b instanceof Map<?, ?> board) || !(board.get("lists") instanceof List<?> lists)) continue;
+            lists.stream().filter(l -> l instanceof Map<?, ?>).map(l -> (Map<?, ?>) l)
+                    .sorted(Comparator.comparingDouble(l -> l.get("pos") instanceof Number n ? n.doubleValue() : 0))
+                    .forEach(l -> out.add(new Option(str(l.get("id")), str(l.get("name")), str(board.get("name")))));
+        }
+        return out;
+    }
+
     // ---- plumbing ----
 
     // The app no longer accepts the account: mark it, the same way a failing step does.
@@ -368,8 +407,14 @@ public class OptionsService {
         try {
             HttpResponse<String> response = http.send(request.timeout(Duration.ofSeconds(20)).build(),
                     HttpResponse.BodyHandlers.ofString());
-            Object body = response.body() == null || response.body().isBlank() ? null
-                    : jsonMapper.readValue(response.body(), Object.class);
+            Object body = null;
+            if (response.body() != null && !response.body().isBlank()) {
+                try {
+                    body = jsonMapper.readValue(response.body(), Object.class);
+                } catch (RuntimeException notJson) {
+                    body = response.body(); // some apps answer errors in plain text (Trello: "invalid token")
+                }
+            }
             return new Response(response.statusCode(), body);
         } catch (Exception e) {
             if (e instanceof InterruptedException) Thread.currentThread().interrupt();
