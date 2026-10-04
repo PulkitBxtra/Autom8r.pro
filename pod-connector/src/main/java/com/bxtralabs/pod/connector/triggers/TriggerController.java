@@ -69,6 +69,19 @@ public class TriggerController {
         }
     }
 
+    // Stripe's webhook events. Public: authenticated by the signature.
+    @PostMapping("/hooks/stripe/{subscriptionId}")
+    public ResponseEntity<Map<String, String>> stripe(@PathVariable String subscriptionId,
+                                                      @RequestHeader(value = "Stripe-Signature", required = false) String signature,
+                                                      @RequestBody byte[] body) {
+        try {
+            TriggerService.Outcome outcome = triggers.onStripeEvent(subscriptionId, signature, body);
+            return ResponseEntity.ok(Map.of("result", outcome.name().toLowerCase()));
+        } catch (TriggerService.InvalidDeliveryException e) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", e.getMessage()));
+        }
+    }
+
     // Slack Events API requests for this server's Slack app (its Event Subscriptions Request URL).
     // Public: authenticated by the signature.
     @PostMapping("/hooks/slack")

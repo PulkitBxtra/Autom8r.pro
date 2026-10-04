@@ -31,6 +31,7 @@ class TriggerServiceTest {
     private final TokenService tokens = mock(TokenService.class);
     private final GitHubTriggers github = mock(GitHubTriggers.class);
     private final SlackTriggers slack = mock(SlackTriggers.class);
+    private final StripeTriggers stripe = new StripeTriggers(JsonMapper.builder().build(), "http://unused");
     private final RunStarter runs = mock(RunStarter.class);
     private static final String SLACK_SERVER_SECRET = "server-signing-secret";
     private final Map<String, TriggerSubscription> db = new LinkedHashMap<>();
@@ -65,11 +66,12 @@ class TriggerServiceTest {
         c.setAppId("app_github");
         when(connections.findById("con_1")).thenReturn(Optional.of(c));
         when(tokens.getValidCredentials("con_1")).thenReturn(Map.of("access_token", "gho_1"));
-        when(github.register(any(), any(), any(), any())).thenReturn("hook_77");
+        when(github.register(any(), any(), any(), any())).thenReturn(new AppTriggerRegistrar.Registration("hook_77", null));
     }
 
     private TriggerService service(String publicUrl) {
-        return new TriggerService(subs, deliveries, connections, tokens, cipher, List.of(github, slack), github, slack, runs, json,
+        return new TriggerService(subs, deliveries, connections, tokens, cipher, List.of(github, slack, stripe), github, slack,
+                stripe, runs, json,
                 publicUrl, SLACK_SERVER_SECRET);
     }
 
@@ -187,6 +189,68 @@ class TriggerServiceTest {
         mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
         mac.update(("v0:" + ts + ":").getBytes(StandardCharsets.UTF_8));
         return "v0=" + HexFormat.of().formatHex(mac.doFinal(body));
+    }
+
+    // ---- Stripe ----
+
+    private TriggerSubscription stripeSubscription(String triggerId, String secret) {
+        TriggerSubscription s = new TriggerSubscription();
+        s.setId("tsub_stripe");
+        s.setWorkflowId("wfl_9");
+        s.setUserId("usr_1");
+        s.setAppId("app_stripe");
+        s.setTriggerId(triggerId);
+        s.setStatus(TriggerSubscription.STATUS_ACTIVE);
+        s.setSecret(cipher.encrypt(Map.of("secret", secret)));
+        db.put(s.getId(), s);
+        return s;
+    }
+
+    private static String stripeSign(String secret, long ts, byte[] body) throws Exception {
+        javax.crypto.Mac mac = javax.crypto.Mac.getInstance("HmacSHA256");
+        mac.init(new javax.crypto.spec.SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+        mac.update((ts + ".").getBytes(StandardCharsets.UTF_8));
+        return "t=" + ts + ",v1=" + java.util.HexFormat.of().formatHex(mac.doFinal(body));
+    }
+
+    @Test
+    void aSignedStripePaymentStartsARunOnceWithThePaymentsData() throws Exception {
+        TriggerSubscription s = stripeSubscription(StripeTriggers.NEW_PAYMENT, "whsec_1");
+        byte[] body = ("{\"id\":\"evt_1\",\"type\":\"payment_intent.succeeded\",\"livemode\":false,\"data\":{\"object\":"
+                + "{\"id\":\"pi_1\",\"amount\":2000,\"amount_received\":2000,\"currency\":\"usd\",\"customer\":\"cus_1\","
+                + "\"receipt_email\":\"ada@example.com\",\"latest_charge\":\"ch_1\",\"metadata\":{\"order\":\"42\"},\"created\":1700000000}}}")
+                .getBytes(StandardCharsets.UTF_8);
+        long now = System.currentTimeMillis() / 1000;
+
+        assertEquals(TriggerService.Outcome.STARTED, service.onStripeEvent(s.getId(), stripeSign("whsec_1", now, body), body));
+        verify(runs).start(eq("wfl_9"), argThat(m -> m.get("id").equals("pi_1") && m.get("amount").equals(2000)
+                && m.get("customerId").equals("cus_1") && m.get("email").equals("ada@example.com") && m.get("chargeId").equals("ch_1")
+                && m.get("createdAt").equals("2023-11-14T22:13:20Z") && ((Map<?, ?>) m.get("metadata")).get("order").equals("42")));
+        assertEquals(TriggerService.Outcome.DUPLICATE, service.onStripeEvent(s.getId(), stripeSign("whsec_1", now, body), body),
+                "Stripe retrying the same event starts nothing");
+        verify(runs, times(1)).start(any(), any());
+
+        byte[] other = "{\"id\":\"evt_2\",\"type\":\"customer.created\",\"data\":{\"object\":{\"id\":\"cus_2\"}}}".getBytes(StandardCharsets.UTF_8);
+        assertEquals(TriggerService.Outcome.IGNORED, service.onStripeEvent(s.getId(), stripeSign("whsec_1", now, other), other));
+    }
+
+    @Test
+    void stripeSignaturesMustMatchAndBeRecent() throws Exception {
+        byte[] body = "{\"id\":\"evt_1\"}".getBytes(StandardCharsets.UTF_8);
+        long now = System.currentTimeMillis();
+        long ts = now / 1000;
+        assertTrue(TriggerService.validStripeSignature("whsec_1", body, stripeSign("whsec_1", ts, body), now));
+        // While a secret is being rolled Stripe sends one v1 per secret; any may match.
+        String two = "t=" + ts + ",v1=" + "0".repeat(64) + "," + stripeSign("whsec_1", ts, body).split(",")[1];
+        assertTrue(TriggerService.validStripeSignature("whsec_1", body, two, now));
+        assertFalse(TriggerService.validStripeSignature("whsec_1", body, stripeSign("whsec_other", ts, body), now));
+        assertFalse(TriggerService.validStripeSignature("whsec_1", body, stripeSign("whsec_1", ts - 600, body), now), "too old");
+        assertFalse(TriggerService.validStripeSignature("whsec_1", body, null, now));
+        assertFalse(TriggerService.validStripeSignature("whsec_1", body, "v1=abc", now), "no timestamp");
+
+        TriggerSubscription s = stripeSubscription(StripeTriggers.NEW_CUSTOMER, "whsec_1");
+        assertThrows(TriggerService.InvalidDeliveryException.class, () -> service.onStripeEvent(s.getId(), stripeSign("guess", ts, body), body));
+        verifyNoInteractions(runs);
     }
 
     private TriggerSubscription slackSubscription(String id, String workflowId, String connectionId, String team, String via) {

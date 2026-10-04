@@ -39,6 +39,7 @@ public class TriggerService {
     private final List<AppTriggerRegistrar> registrars;
     private final GitHubTriggers github;
     private final SlackTriggers slack;
+    private final StripeTriggers stripe;
     private final RunStarter runs;
     private final JsonMapper jsonMapper;
     private final String publicUrl;
@@ -47,7 +48,8 @@ public class TriggerService {
 
     public TriggerService(TriggerSubscriptionRepository subscriptions, TriggerDeliveryRepository deliveries,
                           ConnectionRepository connections, TokenService tokens, CredentialCipher cipher,
-                          List<AppTriggerRegistrar> registrars, GitHubTriggers github, SlackTriggers slack, RunStarter runs,
+                          List<AppTriggerRegistrar> registrars, GitHubTriggers github, SlackTriggers slack,
+                          StripeTriggers stripe, RunStarter runs,
                           JsonMapper jsonMapper, @Value("${triggers.public-url:}") String publicUrl,
                           @Value("${connectors.slack.signing-secret:}") String slackSigningSecret) {
         this.subscriptions = subscriptions;
@@ -58,6 +60,7 @@ public class TriggerService {
         this.registrars = registrars;
         this.github = github;
         this.slack = slack;
+        this.stripe = stripe;
         this.runs = runs;
         this.jsonMapper = jsonMapper;
         this.publicUrl = publicUrl == null ? "" : publicUrl.trim().replaceAll("/+$", "");
@@ -105,7 +108,11 @@ public class TriggerService {
                     .orElseThrow(() -> new TriggerSetupException("The trigger's account no longer exists; choose another"));
             Map<String, String> creds = tokens.getValidCredentials(c.getId());
             String hookUrl = publicUrl + "/hooks/" + appId.replaceFirst("^app_", "") + "/" + s.getId();
-            s.setExternalId(registrar.register(s, creds, hookUrl, secret));
+            AppTriggerRegistrar.Registration registration = registrar.register(s, creds, hookUrl, secret);
+            s.setExternalId(registration.externalId());
+            if (registration.secret() != null) {
+                s.setSecret(cipher.encrypt(Map.of("secret", registration.secret())));
+            }
             s.setStatus(TriggerSubscription.STATUS_ACTIVE);
             s.setLastError(null);
         } catch (TriggerSetupException e) {
@@ -182,6 +189,73 @@ public class TriggerService {
         s.setLastEventAt(System.currentTimeMillis());
         subscriptions.save(s);
         return Outcome.STARTED;
+    }
+
+    // A Stripe webhook event for a subscription. Rejects anything not signed with the endpoint's
+    // secret within the last 5 minutes.
+    public Outcome onStripeEvent(String subscriptionId, String signature, byte[] body) {
+        TriggerSubscription s = subscriptions.findById(subscriptionId)
+                .filter(found -> "app_stripe".equals(found.getAppId()))
+                .orElseThrow(() -> new NotFoundException("No such trigger"));
+        String secret = cipher.decrypt(s.getSecret()).get("secret");
+        if (!validStripeSignature(secret, body, signature, System.currentTimeMillis())) {
+            throw new InvalidDeliveryException();
+        }
+        Map<?, ?> event = jsonMapper.readValue(body, Map.class);
+        Optional<Map<String, Object>> triggerBody = stripe.toTriggerBody(s.getTriggerId(), event);
+        if (triggerBody.isEmpty()) {
+            return Outcome.IGNORED;
+        }
+        String key = "stripe:" + event.get("id") + ":" + s.getId();
+        if (deliveries.recordNew(key, s.getId(), System.currentTimeMillis()) == 0) {
+            return Outcome.DUPLICATE;
+        }
+        try {
+            runs.start(s.getWorkflowId(), triggerBody.get());
+        } catch (RuntimeException e) {
+            // Let Stripe retry it: forget we saw it.
+            deliveries.deleteById(key);
+            throw e;
+        }
+        s.setLastEventAt(System.currentTimeMillis());
+        subscriptions.save(s);
+        return Outcome.STARTED;
+    }
+
+    // Stripe-Signature: "t=<unix seconds>,v1=<hex>[,v1=...]" where v1 = HMAC-SHA256(secret,
+    // t + "." + raw body); any v1 may match (Stripe sends several while a secret is being rolled).
+    // t must be within 5 minutes, so a captured request can't be replayed later.
+    static boolean validStripeSignature(String secret, byte[] body, String header, long nowMs) {
+        if (secret == null || secret.isBlank() || header == null) return false;
+        Long ts = null;
+        List<String> signatures = new ArrayList<>();
+        for (String part : header.split(",")) {
+            String[] kv = part.trim().split("=", 2);
+            if (kv.length != 2) continue;
+            if ("t".equals(kv[0])) {
+                try {
+                    ts = Long.parseLong(kv[1]);
+                } catch (NumberFormatException e) {
+                    return false;
+                }
+            } else if ("v1".equals(kv[0])) {
+                signatures.add(kv[1]);
+            }
+        }
+        if (ts == null || signatures.isEmpty() || Math.abs(nowMs / 1000 - ts) > 300) return false;
+        try {
+            Mac mac = Mac.getInstance("HmacSHA256");
+            mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+            mac.update((ts + ".").getBytes(StandardCharsets.UTF_8));
+            byte[] expected = HexFormat.of().formatHex(mac.doFinal(body)).getBytes(StandardCharsets.UTF_8);
+            boolean match = false;
+            for (String sig : signatures) {
+                match |= MessageDigest.isEqual(expected, sig.getBytes(StandardCharsets.UTF_8));
+            }
+            return match;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     // What Slack gets back: the challenge for its URL check, or the outcome of an event.

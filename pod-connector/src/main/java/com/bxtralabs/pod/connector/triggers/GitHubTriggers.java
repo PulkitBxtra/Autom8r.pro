@@ -50,7 +50,7 @@ public class GitHubTriggers implements AppTriggerRegistrar {
     }
 
     @Override
-    public String register(TriggerSubscription s, Map<String, String> credentials, String hookUrl, String secret)
+    public Registration register(TriggerSubscription s, Map<String, String> credentials, String hookUrl, String secret)
             throws TriggerSetupException {
         String repository = repository(s);
         Map<String, Object> body = Map.of("name", "web", "active", true, "events", List.of(event(s.getTriggerId())),
@@ -58,7 +58,7 @@ public class GitHubTriggers implements AppTriggerRegistrar {
         HttpResponse<String> response = call(credentials, "POST", "/repos/" + repository + "/hooks", body);
         int status = response.statusCode();
         if (status == 201) {
-            return String.valueOf(jsonMapper.readValue(response.body(), Map.class).get("id"));
+            return new Registration(String.valueOf(jsonMapper.readValue(response.body(), Map.class).get("id")), null);
         }
         String message = messageOf(response.body());
         throw new TriggerSetupException(switch (status) {

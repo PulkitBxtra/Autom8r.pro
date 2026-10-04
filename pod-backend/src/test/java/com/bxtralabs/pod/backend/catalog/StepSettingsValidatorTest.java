@@ -99,10 +99,10 @@ class StepSettingsValidatorTest {
         Exception e = assertThrows(IllegalArgumentException.class, () -> real.normalize(
                 new WorkflowGraph(List.of(WEBHOOK, gmail), List.of(new GraphEdge("t", "a", null, null)))));
         assertEquals("Gmail \"Send Email\" isn't available yet; choose another step or remove it", e.getMessage());
-        GraphNode stripe = new GraphNode("t", "trigger", "Stripe", "trg_stripe_new_payment", null, null, Map.of(),
+        GraphNode gmailTrigger = new GraphNode("t", "trigger", "Gmail", "trg_gmail_new_email", null, null, Map.of(),
                 null, null, "con_test", null);
-        e = assertThrows(IllegalArgumentException.class, () -> real.normalize(new WorkflowGraph(List.of(stripe), List.of())));
-        assertTrue(e.getMessage().startsWith("Stripe \"New Payment\" isn't available yet"), e.getMessage());
+        e = assertThrows(IllegalArgumentException.class, () -> real.normalize(new WorkflowGraph(List.of(gmailTrigger), List.of())));
+        assertTrue(e.getMessage().startsWith("Gmail \"New Email\" isn't available yet"), e.getMessage());
     }
 
     @Test

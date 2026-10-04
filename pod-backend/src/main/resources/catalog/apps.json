@@ -491,16 +491,36 @@
         {
           "id": "trg_stripe_new_payment",
           "name": "New Payment",
-          "comingSoon": true,
-          "description": "A payment succeeds.",
-          "fields": []
+          "description": "A payment succeeds. Turning the workflow on adds a webhook endpoint to the Stripe account (a restricted key needs Webhook Endpoints: Write).",
+          "fields": [],
+          "outputs": [
+            { "key": "id", "label": "Payment ID", "type": "text" },
+            { "key": "amount", "label": "Amount received (smallest unit)", "type": "number" },
+            { "key": "currency", "label": "Currency", "type": "text" },
+            { "key": "customerId", "label": "Customer ID", "type": "text" },
+            { "key": "email", "label": "Receipt email", "type": "text" },
+            { "key": "description", "label": "Description", "type": "text" },
+            { "key": "chargeId", "label": "Charge ID", "type": "text" },
+            { "key": "metadata", "label": "Metadata", "type": "object" },
+            { "key": "createdAt", "label": "Created at", "type": "datetime" },
+            { "key": "livemode", "label": "Live mode", "type": "boolean" }
+          ]
         },
         {
           "id": "trg_stripe_new_customer",
           "name": "New Customer",
-          "comingSoon": true,
-          "description": "A customer is created.",
-          "fields": []
+          "description": "A customer is created. Turning the workflow on adds a webhook endpoint to the Stripe account (a restricted key needs Webhook Endpoints: Write).",
+          "fields": [],
+          "outputs": [
+            { "key": "id", "label": "Customer ID", "type": "text" },
+            { "key": "name", "label": "Name", "type": "text" },
+            { "key": "email", "label": "Email", "type": "text" },
+            { "key": "phone", "label": "Phone", "type": "text" },
+            { "key": "description", "label": "Description", "type": "text" },
+            { "key": "metadata", "label": "Metadata", "type": "object" },
+            { "key": "createdAt", "label": "Created at", "type": "datetime" },
+            { "key": "livemode", "label": "Live mode", "type": "boolean" }
+          ]
         }
       ],
       "actions": [

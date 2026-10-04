@@ -90,7 +90,7 @@ class SlackTriggersTest {
             ex.close();
         });
         TriggerSubscription s = subscription(SlackTriggers.NEW_MESSAGE, Map.of("channel", "#support"));
-        assertNull(slack.register(s, Map.of("access_token", "xoxb-1"), "unused", "unused"));
+        assertNull(slack.register(s, Map.of("access_token", "xoxb-1"), "unused", "unused").externalId());
         assertEquals("T1", s.getRoutingKey());
         assertEquals("server", s.getMeta().get("via"));
         assertEquals("C0SUPPORT", s.getMeta().get("channelId"));

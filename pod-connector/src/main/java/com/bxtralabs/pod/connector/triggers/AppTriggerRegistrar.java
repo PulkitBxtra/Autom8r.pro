@@ -9,9 +9,15 @@ public interface AppTriggerRegistrar {
 
     boolean supports(String appId);
 
+    // What the app made: its id for the registration (to remove it later; null if nothing was
+    // registered), and the secret it signs deliveries with when it picks its own (Stripe), else
+    // null for the one we handed it.
+    record Registration(String externalId, String secret) {
+    }
+
     // Asks the app to call hookUrl when the trigger's event happens, signing deliveries with
-    // secret. Returns the app's id for the registration (to remove it later).
-    String register(TriggerSubscription subscription, Map<String, String> credentials, String hookUrl, String secret)
+    // secret (if the app takes one).
+    Registration register(TriggerSubscription subscription, Map<String, String> credentials, String hookUrl, String secret)
             throws TriggerSetupException;
 
     // Best effort: the workflow is being turned off or changed.

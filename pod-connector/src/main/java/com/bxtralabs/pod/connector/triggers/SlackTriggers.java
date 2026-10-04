@@ -71,7 +71,7 @@ public class SlackTriggers implements AppTriggerRegistrar {
     }
 
     @Override
-    public String register(TriggerSubscription s, Map<String, String> credentials, String hookUrl, String secret)
+    public Registration register(TriggerSubscription s, Map<String, String> credentials, String hookUrl, String secret)
             throws TriggerSetupException {
         Connection c = connections.findById(s.getConnectionId())
                 .orElseThrow(() -> new TriggerSetupException("The trigger's account no longer exists; choose another"));
@@ -117,7 +117,7 @@ public class SlackTriggers implements AppTriggerRegistrar {
             meta.put("channelName", channel.get("name"));
         }
         s.setMeta(meta);
-        return null; // nothing registered with Slack, nothing to remove
+        return new Registration(null, null); // nothing registered with Slack, nothing to remove
     }
 
     @Override
