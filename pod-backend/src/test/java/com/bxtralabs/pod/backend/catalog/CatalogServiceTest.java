@@ -76,6 +76,10 @@ class CatalogServiceTest {
             assertEquals(List.of("id", "name", "url", "listId", "boardId"), catalog.action(trello)
                     .orElseThrow().outputs().stream().map(CatalogOutput::key).toList(), "what TrelloHandler returns");
         }
+        assertEquals(List.of("id", "number", "status", "url", "amountDue", "currency", "customerId"), catalog.action("act_stripe_create_invoice")
+                .orElseThrow().outputs().stream().map(CatalogOutput::key).toList(), "what StripeHandler returns");
+        assertEquals(List.of("id", "status", "amount", "currency", "paymentIntentId"), catalog.action("act_stripe_refund")
+                .orElseThrow().outputs().stream().map(CatalogOutput::key).toList(), "what StripeHandler returns");
     }
 
     // Account-backed choices only on text fields, and only lists of the step's own app's accounts.

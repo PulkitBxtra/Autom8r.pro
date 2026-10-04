@@ -54,7 +54,8 @@ public record CatalogField(
             "notion.pages", "app_notion",
             "notion.parents", "app_notion",
             "discord.channels", "app_discord",
-            "trello.lists", "app_trello");
+            "trello.lists", "app_trello",
+            "stripe.customers", "app_stripe");
 
     public record Option(String value, String label) {
     }

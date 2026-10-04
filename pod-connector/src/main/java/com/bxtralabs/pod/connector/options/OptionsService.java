@@ -23,7 +23,8 @@ import java.util.function.LongSupplier;
 
 // Choices for a step setting, read from the step's account: the Slack channels a bot can see,
 // the GitHub repositories a token can reach, the Notion databases and pages shared with an
-// integration, the Discord channels a bot can post in, the lists on a member's Trello boards... The catalog names the list on the field (optionsFrom). Each option's value is
+// integration, the Discord channels a bot can post in, the lists on a member's Trello boards, an
+// account's Stripe customers... The catalog names the list on the field (optionsFrom). Each option's value is
 // what the step saves (an id, or owner/repo), its label what the user reads.
 // Lists are kept for a minute per account, so typing in the search box doesn't call the app on
 // every key; Notion is searched by the app itself, since a workspace can hold thousands of pages.
@@ -46,7 +47,8 @@ public class OptionsService {
             "notion.pages", "app_notion",
             "notion.parents", "app_notion",
             "discord.channels", "app_discord",
-            "trello.lists", "app_trello");
+            "trello.lists", "app_trello",
+            "stripe.customers", "app_stripe");
 
     static final int LIMIT = 100;
     static final long CACHE_MS = 60_000;
@@ -61,6 +63,7 @@ public class OptionsService {
     private final String discordApi;
     private final String trelloApi;
     private final String trelloOauthApi;
+    private final String stripeApi;
     private final LongSupplier clock;
     private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
     private final Map<String, Cached> cache = new ConcurrentHashMap<>();
@@ -75,14 +78,15 @@ public class OptionsService {
                           @Value("${connectors.notion.api-base:https://api.notion.com/v1}") String notionApi,
                           @Value("${connectors.discord.api-base:https://discord.com/api/v10}") String discordApi,
                           @Value("${connectors.trello.api-base:https://api.trello.com/1}") String trelloApi,
-                          @Value("${connectors.trello.oauth-api-base:https://trello.com/1}") String trelloOauthApi) {
+                          @Value("${connectors.trello.oauth-api-base:https://trello.com/1}") String trelloOauthApi,
+                          @Value("${connectors.stripe.api-base:https://api.stripe.com/v1}") String stripeApi) {
         this(connections, tokens, jsonMapper, githubApi, slackApi, notionApi, discordApi, trelloApi, trelloOauthApi,
-                System::currentTimeMillis);
+                stripeApi, System::currentTimeMillis);
     }
 
     OptionsService(ConnectionRepository connections, TokenService tokens, JsonMapper jsonMapper,
                    String githubApi, String slackApi, String notionApi, String discordApi, String trelloApi,
-                   String trelloOauthApi, LongSupplier clock) {
+                   String trelloOauthApi, String stripeApi, LongSupplier clock) {
         this.connections = connections;
         this.tokens = tokens;
         this.jsonMapper = jsonMapper;
@@ -92,6 +96,7 @@ public class OptionsService {
         this.discordApi = discordApi.replaceAll("/+$", "");
         this.trelloApi = trelloApi.replaceAll("/+$", "");
         this.trelloOauthApi = trelloOauthApi.replaceAll("/+$", "");
+        this.stripeApi = stripeApi.replaceAll("/+$", "");
         this.clock = clock;
     }
 
@@ -143,6 +148,7 @@ public class OptionsService {
             case "notion.parents" -> notion(account, query, null);
             case "discord.channels" -> discordChannels(account);
             case "trello.lists" -> trelloLists(account);
+            case "stripe.customers" -> stripeCustomers(account);
             default -> throw new NotFoundException("Unknown list: " + source);
         };
     }
@@ -380,6 +386,42 @@ public class OptionsService {
             lists.stream().filter(l -> l instanceof Map<?, ?>).map(l -> (Map<?, ?>) l)
                     .sorted(Comparator.comparingDouble(l -> l.get("pos") instanceof Number n ? n.doubleValue() : 0))
                     .forEach(l -> out.add(new Option(str(l.get("id")), str(l.get("name")), str(board.get("name")))));
+        }
+        return out;
+    }
+
+    // ---- Stripe ----
+
+    // The account's customers, newest first, a page of 100 at a time.
+    private List<Option> stripeCustomers(Account a) {
+        List<Option> out = new ArrayList<>();
+        String after = null;
+        for (int page = 0; page < MAX_PAGES; page++) {
+            Response r = send(HttpRequest.newBuilder(URI.create(stripeApi + "/customers?limit=100"
+                            + (after == null ? "" : "&starting_after=" + URLEncoder.encode(after, StandardCharsets.UTF_8))))
+                    .header("Authorization", "Bearer " + a.apiKey())
+                    .GET(), "Stripe");
+            if (r.status() == 401) {
+                rejected(a, "Stripe rejected the API key");
+            }
+            if (r.status() == 403) {
+                throw new OptionsException(422, "This Stripe key can't list customers. Give the restricted key "
+                        + "Customers read access, or type the customer ID (cus_...).");
+            }
+            if (r.status() != 200) {
+                throw new OptionsException(502, "Stripe couldn't list customers (HTTP " + r.status() + ")");
+            }
+            List<?> data = r.map().get("data") instanceof List<?> l ? l : List.of();
+            for (Object x : data) {
+                if (!(x instanceof Map<?, ?> c) || Boolean.TRUE.equals(c.get("deleted"))) continue;
+                String name = str(c.get("name"));
+                String email = str(c.get("email"));
+                String label = firstNonBlank(name, email, str(c.get("id")));
+                String hint = (!name.isBlank() && !email.isBlank() ? email + " · " : "") + str(c.get("id"));
+                out.add(new Option(str(c.get("id")), label, hint));
+            }
+            if (!Boolean.TRUE.equals(r.map().get("has_more")) || data.isEmpty()) break;
+            after = str(((Map<?, ?>) data.getLast()).get("id"));
         }
         return out;
     }

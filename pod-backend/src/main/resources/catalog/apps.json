@@ -507,34 +507,54 @@
         {
           "id": "act_stripe_create_invoice",
           "name": "Create Invoice",
-          "comingSoon": true,
-          "description": "Creates an invoice for a customer with one line item.",
+          "description": "Creates an invoice for a customer with one line item. Sent right away, or left as a draft to review in Stripe.",
           "handler": "stripe.create_invoice",
           "fields": [
-            { "key": "customerId", "label": "Customer ID", "type": "text", "required": true, "placeholder": "cus_…" },
+            { "key": "customerId", "label": "Customer", "type": "text", "required": true, "placeholder": "cus_…",
+              "optionsFrom": "stripe.customers" },
             { "key": "amount", "label": "Amount", "type": "number", "required": true,
               "help": "In the currency's smallest unit, e.g. cents: 1500 = $15.00." },
-            { "key": "currency", "label": "Currency", "type": "text", "required": true, "defaultValue": "usd" },
-            { "key": "description", "label": "Description", "type": "text" },
-            { "key": "send", "label": "Send to the customer right away", "type": "boolean", "defaultValue": false }
+            { "key": "currency", "label": "Currency", "type": "text", "required": true, "defaultValue": "usd",
+              "help": "Three letters, e.g. usd, eur, inr." },
+            { "key": "description", "label": "Description", "type": "text",
+              "help": "Shown on the invoice and its line item." },
+            { "key": "daysUntilDue", "label": "Days until due", "type": "number", "defaultValue": 30 },
+            { "key": "send", "label": "Send to the customer right away", "type": "boolean", "defaultValue": false,
+              "help": "Off: the invoice stays a draft in Stripe for you to check and send." }
+          ],
+          "outputs": [
+            { "key": "id", "label": "Invoice ID", "type": "text" },
+            { "key": "number", "label": "Invoice number", "type": "text" },
+            { "key": "status", "label": "Status (draft, open...)", "type": "text" },
+            { "key": "url", "label": "Payment page link", "type": "text" },
+            { "key": "amountDue", "label": "Amount due (smallest unit)", "type": "number" },
+            { "key": "currency", "label": "Currency", "type": "text" },
+            { "key": "customerId", "label": "Customer ID", "type": "text" }
           ]
         },
         {
           "id": "act_stripe_refund",
           "name": "Refund Payment",
-          "comingSoon": true,
           "description": "Refunds a payment in full or in part.",
           "handler": "stripe.refund_payment",
           "fields": [
-            { "key": "paymentIntentId", "label": "Payment ID", "type": "text", "required": true, "placeholder": "pi_…" },
+            { "key": "paymentIntentId", "label": "Payment ID", "type": "text", "required": true, "placeholder": "pi_… or ch_…",
+              "help": "Usually from the trigger or an earlier step." },
             { "key": "amount", "label": "Amount", "type": "number",
-              "help": "In the smallest unit. Leave empty to refund everything." },
+              "help": "In the smallest unit. Leave empty to refund everything that's left." },
             { "key": "reason", "label": "Reason", "type": "select",
               "options": [
                 { "value": "requested_by_customer", "label": "Requested by customer" },
                 { "value": "duplicate", "label": "Duplicate" },
                 { "value": "fraudulent", "label": "Fraudulent" }
               ] }
+          ],
+          "outputs": [
+            { "key": "id", "label": "Refund ID", "type": "text" },
+            { "key": "status", "label": "Status (succeeded, pending...)", "type": "text" },
+            { "key": "amount", "label": "Amount refunded (smallest unit)", "type": "number" },
+            { "key": "currency", "label": "Currency", "type": "text" },
+            { "key": "paymentIntentId", "label": "Payment ID", "type": "text" }
           ]
         }
       ]

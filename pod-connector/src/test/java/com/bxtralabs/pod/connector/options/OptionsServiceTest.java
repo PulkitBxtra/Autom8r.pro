@@ -55,7 +55,7 @@ class OptionsServiceTest {
         server.start();
         String base = "http://127.0.0.1:" + server.getAddress().getPort();
         service = new OptionsService(connections, tokens, JsonMapper.builder().build(),
-                base + "/gh", base + "/slack", base + "/notion", base + "/discord", base + "/trello", base + "/trello-oauth", () -> now);
+                base + "/gh", base + "/slack", base + "/notion", base + "/discord", base + "/trello", base + "/trello-oauth", base + "/stripe", () -> now);
     }
 
     @AfterEach
@@ -218,6 +218,27 @@ class OptionsServiceTest {
         now += OptionsService.CACHE_MS;
         assertThrows(ConnectionNeedsReauthException.class, () -> service.options("usr_1", "con_t", "trello.lists", ""));
         verify(tokens).markRejected(eq("con_t"), eq("usr_1"), eq("app_trello"), eq(TokenService.version(c)), contains("Trello"));
+    }
+
+    @Test
+    void stripeCustomersAreNamedByNameOrEmailAndPaged() {
+        Connection c = account("con_p", "app_stripe", "usr_1");
+        when(tokens.getValidCredentials("con_p")).thenReturn(Map.of("apiKey", "sk_test_1"));
+        answers.put("/stripe/customers", "{\"data\":[{\"id\":\"cus_A\",\"name\":\"Ada Lovelace\",\"email\":\"ada@example.com\"},"
+                + "{\"id\":\"cus_B\",\"name\":null,\"email\":\"grace@example.com\"}],\"has_more\":false}");
+
+        assertEquals(List.of(new OptionsService.Option("cus_A", "Ada Lovelace", "ada@example.com · cus_A"),
+                new OptionsService.Option("cus_B", "grace@example.com", "cus_B")),
+                service.options("usr_1", "con_p", "stripe.customers", null).options());
+        assertTrue(calls.getFirst().endsWith(" Bearer sk_test_1"), calls.getFirst());
+
+        answers.put("/stripe/customers", "403:{\"error\":{\"message\":\"The provided key does not have the required permissions\"}}");
+        now += OptionsService.CACHE_MS;
+        assertEquals(422, assertThrows(OptionsException.class, () -> service.options("usr_1", "con_p", "stripe.customers", "")).status());
+        answers.put("/stripe/customers", "401:{\"error\":{\"message\":\"Invalid API Key provided\"}}");
+        now += OptionsService.CACHE_MS;
+        assertThrows(ConnectionNeedsReauthException.class, () -> service.options("usr_1", "con_p", "stripe.customers", ""));
+        verify(tokens).markRejected(eq("con_p"), eq("usr_1"), eq("app_stripe"), eq(TokenService.version(c)), contains("Stripe"));
     }
 
     @Test
