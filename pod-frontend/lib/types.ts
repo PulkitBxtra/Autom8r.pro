@@ -61,6 +61,8 @@ export type AppTrigger = {
   fields: CatalogField[];
   // trigger.body; empty when it's whatever arrives (Webhook).
   outputs: CatalogOutput[];
+  // Planned but not built yet: shown, can't be picked or saved.
+  comingSoon?: boolean;
 };
 
 export type AppAction = {
@@ -75,6 +77,8 @@ export type AppAction = {
   // The key of an "outputs" field where the user declares what it returns (Code steps); those
   // come before `outputs` in the data picker.
   outputsFrom?: string | null;
+  // Planned but not built yet: shown, can't be picked or saved.
+  comingSoon?: boolean;
 };
 
 export type App = {

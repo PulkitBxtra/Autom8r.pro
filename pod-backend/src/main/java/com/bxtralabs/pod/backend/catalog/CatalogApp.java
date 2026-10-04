@@ -26,9 +26,11 @@ public record CatalogApp(
     public static final String CONNECTION_REQUIRED = "required";
 
     // outputs: the data it starts a run with (trigger.body), empty when that's whatever arrives.
+    // comingSoon: listed so people see it's planned, but not built yet; steps can't be saved with it.
     public record Trigger(String id, String name, String description, List<CatalogField> fields,
-                          List<CatalogOutput> outputs) {
+                          List<CatalogOutput> outputs, Boolean comingSoon) {
         public Trigger {
+            comingSoon = Boolean.TRUE.equals(comingSoon);
             outputs = outputs == null ? List.of() : List.copyOf(outputs);
         }
     }
@@ -38,9 +40,11 @@ public record CatalogApp(
     // outputsFrom: the key of an "outputs" field in which the user declares (more of) what it
     // returns, for steps whose output depends on their settings (a Code step's script). Listed
     // before the catalog's own outputs.
+    // comingSoon: as for triggers; pod-processor has no handler for it.
     public record Action(String id, String name, String description, String handler, List<CatalogField> fields,
-                         List<CatalogOutput> outputs, String outputsFrom) {
+                         List<CatalogOutput> outputs, String outputsFrom, Boolean comingSoon) {
         public Action {
+            comingSoon = Boolean.TRUE.equals(comingSoon);
             outputs = outputs == null ? List.of() : List.copyOf(outputs);
         }
     }

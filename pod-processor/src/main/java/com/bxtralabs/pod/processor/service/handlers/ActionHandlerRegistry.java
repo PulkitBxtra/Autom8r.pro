@@ -6,7 +6,7 @@ import org.springframework.stereotype.Component;
 import java.util.List;
 
 // Picks the handler for a node. Spring injects the handlers sorted by @Order, and
-// SimulatedHandler is last and supports everything, so there is always a match.
+// UnavailableHandler is last and supports everything, so there is always a match.
 @Component
 public class ActionHandlerRegistry {
 

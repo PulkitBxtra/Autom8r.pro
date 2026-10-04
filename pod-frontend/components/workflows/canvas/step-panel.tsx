@@ -66,7 +66,7 @@ export function StepPanel({
     // Changing the app resets the previously chosen event and account -- they
     // belonged to the other app. With exactly one event or account for the new app, use it.
     const accounts = connections.filter((c) => c.appId === app.id);
-    const appEvents = isTrigger ? app.triggers : app.actions;
+    const appEvents = (isTrigger ? app.triggers : app.actions).filter((e) => !e.comingSoon);
     const only = appEvents.length === 1 ? appEvents[0] : undefined;
     onChange?.({
       app,
@@ -81,15 +81,19 @@ export function StepPanel({
     if (!node.data.app) return;
     const item = events.find((e) => e.id === itemId);
     // A different event takes different settings: start from its defaults.
-    if (item && item.id !== node.data.item?.id) onChange?.({ item, parameters: defaultParameters(item.fields) });
+    if (item && !item.comingSoon && item.id !== node.data.item?.id) onChange?.({ item, parameters: defaultParameters(item.fields) });
   }
 
-  // Only apps that have something for this kind of step (e.g. Webhook only triggers).
-  const filteredApps = catalog.apps.filter(
-    (app) =>
-      (isTrigger ? app.triggers.length > 0 : app.actions.length > 0) &&
-      app.name.toLowerCase().includes(query.toLowerCase())
-  );
+  // Only apps that have something for this kind of step (e.g. Webhook only triggers). Apps
+  // whose events of this kind are all still to come are listed after the rest, not pickable.
+  const hasReady = (app: App) => (isTrigger ? app.triggers : app.actions).some((e) => !e.comingSoon);
+  const filteredApps = catalog.apps
+    .filter(
+      (app) =>
+        (isTrigger ? app.triggers.length > 0 : app.actions.length > 0) &&
+        app.name.toLowerCase().includes(query.toLowerCase())
+    )
+    .sort((a, b) => Number(hasReady(b)) - Number(hasReady(a)));
 
   return (
     <div className="flex h-full w-[400px] shrink-0 flex-col border-l border-border-strong bg-surface-raised">
@@ -175,18 +179,28 @@ export function StepPanel({
                     </div>
                   )}
                   <div className="grid grid-cols-2 gap-2">
-                    {filteredApps.map((app) => (
-                      <button
-                        key={app.id}
-                        onClick={() => handlePickApp(app)}
-                        className="flex items-center gap-2.5 rounded-xl border border-border-strong bg-surface-sunken px-3 py-2.5 text-left transition-colors hover:border-lemon/50 hover:bg-white/5"
-                      >
-                        <AppLogo appId={app.id} name={app.name} className="size-7 rounded-md" />
-                        <span className="truncate text-sm font-semibold">
-                          {app.name}
-                        </span>
-                      </button>
-                    ))}
+                    {filteredApps.map((app) => {
+                      const ready = hasReady(app);
+                      return (
+                        <button
+                          key={app.id}
+                          onClick={() => handlePickApp(app)}
+                          disabled={!ready}
+                          title={ready ? undefined : `${app.name} ${isTrigger ? "triggers" : "actions"} are coming soon`}
+                          className="flex items-center gap-2.5 rounded-xl border border-border-strong bg-surface-sunken px-3 py-2.5 text-left transition-colors enabled:hover:border-lemon/50 enabled:hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <AppLogo appId={app.id} name={app.name} className="size-7 rounded-md" />
+                          <span className="min-w-0 flex-1 truncate text-sm font-semibold">
+                            {app.name}
+                          </span>
+                          {!ready && (
+                            <span className="shrink-0 rounded-full bg-white/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+                              Soon
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
               ) : (
@@ -229,8 +243,8 @@ export function StepPanel({
                     {node.data.app ? `Select an event` : "Choose an app first"}
                   </option>
                   {events.map((event) => (
-                    <option key={event.id} value={event.id}>
-                      {event.name}
+                    <option key={event.id} value={event.id} disabled={event.comingSoon}>
+                      {event.comingSoon ? `${event.name} (coming soon)` : event.name}
                     </option>
                   ))}
                 </select>
@@ -242,7 +256,8 @@ export function StepPanel({
 
             {isTrigger && node.data.item?.id === "trg_webhook_catch" && <WebhookUrl workflow={workflow} />}
 
-            {node.data.app && (
+            {/* No account to choose for a step that can't run yet. */}
+            {node.data.app && !node.data.item?.comingSoon && (
               <AccountSection
                 app={node.data.app}
                 connectionId={node.data.connectionId}

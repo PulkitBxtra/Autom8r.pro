@@ -252,6 +252,17 @@ export function toWorkflowGraph(
     };
   }
 
+  // Same rule as pod-backend: steps that aren't built yet can't be saved.
+  for (const n of keptNodes) {
+    if (n.data.item!.comingSoon) {
+      return {
+        nodeId: n.id,
+        tab: "setup",
+        error: `${n.data.app!.name} "${n.data.item!.name}" isn't available yet; choose another step or remove it`,
+      };
+    }
+  }
+
   // Same rule as pod-backend: an app that needs an account can't be saved without one.
   for (const n of keptNodes) {
     if (n.data.app!.connection === "required" && !n.data.connectionId) {

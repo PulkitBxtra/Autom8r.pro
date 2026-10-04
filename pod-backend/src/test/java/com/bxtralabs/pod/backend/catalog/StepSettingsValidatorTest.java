@@ -15,10 +15,20 @@ import static org.junit.jupiter.api.Assertions.*;
 class StepSettingsValidatorTest {
 
     private final StepSettingsValidator validator;
+    // The real catalog, where unbuilt steps are marked coming soon.
+    private final StepSettingsValidator real;
 
     StepSettingsValidatorTest() throws Exception {
         JsonMapper mapper = JsonMapper.builder().build();
-        validator = new StepSettingsValidator(new CatalogService(mapper), mapper);
+        CatalogService catalog = new CatalogService(mapper);
+        real = new StepSettingsValidator(catalog, mapper);
+        // As if every app were built, so the settings checks can use any app's fields.
+        validator = new StepSettingsValidator(new CatalogService(catalog.apps().stream().map(app -> new CatalogApp(
+                app.id(), app.name(), app.description(), app.connection(),
+                app.triggers().stream().map(t -> new CatalogApp.Trigger(t.id(), t.name(), t.description(), t.fields(),
+                        t.outputs(), false)).toList(),
+                app.actions().stream().map(a -> new CatalogApp.Action(a.id(), a.name(), a.description(), a.handler(),
+                        a.fields(), a.outputs(), a.outputsFrom(), false)).toList())).toList()), mapper);
     }
 
     private static final GraphNode WEBHOOK = new GraphNode("t", "trigger", "Webhook", "trg_webhook_catch", null,
@@ -80,6 +90,19 @@ class StepSettingsValidatorTest {
         Exception e = assertThrows(IllegalArgumentException.class, () -> validator.normalize(
                 new WorkflowGraph(List.of(WEBHOOK, wrongApp), List.of(new GraphEdge("t", "a", null, null)))));
         assertTrue(e.getMessage().contains("doesn't belong to the app"), e.getMessage());
+    }
+
+    @Test
+    void comingSoonStepsCantBeSaved() {
+        GraphNode gmail = new GraphNode("a", "action", "Gmail", "act_gmail_send", null, null,
+                Map.of("to", "a@example.com", "subject", "s", "body", "b"), null, null, "con_test", null);
+        Exception e = assertThrows(IllegalArgumentException.class, () -> real.normalize(
+                new WorkflowGraph(List.of(WEBHOOK, gmail), List.of(new GraphEdge("t", "a", null, null)))));
+        assertEquals("Gmail \"Send Email\" isn't available yet; choose another step or remove it", e.getMessage());
+        GraphNode stripe = new GraphNode("t", "trigger", "Stripe", "trg_stripe_new_payment", null, null, Map.of(),
+                null, null, "con_test", null);
+        e = assertThrows(IllegalArgumentException.class, () -> real.normalize(new WorkflowGraph(List.of(stripe), List.of())));
+        assertTrue(e.getMessage().startsWith("Stripe \"New Payment\" isn't available yet"), e.getMessage());
     }
 
     @Test

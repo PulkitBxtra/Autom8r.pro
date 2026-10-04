@@ -22,7 +22,7 @@ class HandlersTest {
     private final JsonMapper jsonMapper = JsonMapper.builder().build();
     private final HttpRequestHandler http = new HttpRequestHandler(jsonMapper, true);
     private final ActionHandlerRegistry registry =
-            new ActionHandlerRegistry(List.of(new LogHandler(), http, new SimulatedHandler()));
+            new ActionHandlerRegistry(List.of(new LogHandler(), http, new UnavailableHandler()));
 
     private HttpServer server;
     private String baseUrl;
@@ -69,21 +69,20 @@ class HandlersTest {
     // ---------- registry ----------
 
     @Test
-    void registryPicksRealHandlersAndFallsBackToSimulated() {
+    void registryPicksRealHandlersAndFallsBackToUnavailable() {
         assertInstanceOf(HttpRequestHandler.class, registry.handlerFor(node("HTTP", "http_request")));
         assertInstanceOf(LogHandler.class, registry.handlerFor(node("Log", "log")));
-        assertInstanceOf(SimulatedHandler.class, registry.handlerFor(node("Gmail", "action")));
-        assertInstanceOf(SimulatedHandler.class, registry.handlerFor(node("Trello", null)));
+        assertInstanceOf(UnavailableHandler.class, registry.handlerFor(node("Gmail", "action")));
+        assertInstanceOf(UnavailableHandler.class, registry.handlerFor(node("Trello", null)));
     }
 
-    // ---------- simulated / log ----------
+    // ---------- unavailable / log ----------
 
     @Test
-    void simulatedEchoesInput() {
-        Map<String, Object> out = new SimulatedHandler().execute(node("Gmail", "action"), Map.of("to", "a@b.co"));
-        assertEquals(true, out.get("simulated"));
-        assertEquals("Gmail", out.get("app"));
-        assertEquals(Map.of("to", "a@b.co"), out.get("input"));
+    void stepsWithoutARealHandlerFailForGood() {
+        PermanentStepException e = assertThrows(PermanentStepException.class,
+                () -> new UnavailableHandler().execute(node("Gmail", "gmail.send_email"), Map.of("to", "a@b.co"), HTTP_CONNECTION));
+        assertEquals("Gmail \"Do thing\" isn't available yet, so this step did nothing; remove it from the workflow", e.getMessage());
     }
 
     @Test
@@ -214,10 +213,7 @@ class HandlersTest {
     }
 
     @Test
-    void simulatedStepsSayAnAccountWasUsedButNotWhatItHolds() {
-        Map<String, Object> out = new SimulatedHandler().execute(node("GitHub", "github.create_issue"), Map.of(), HTTP_CONNECTION);
-        assertEquals(Map.of("connectionId", "con_1", "authType", "TOKEN"), out.get("account"));
-        assertFalse(out.toString().contains("from-connection"));
+    void credentialsNeverShowTheirValues() {
         assertFalse(HTTP_CONNECTION.toString().contains("from-connection"), "toString never shows the values");
     }
 }

@@ -136,7 +136,7 @@ class GitHubHandlerTest {
     }
 
     @Test
-    void takesOverFromTheSimulatedHandler() {
+    void takesOverFromTheFallbackHandler() {
         assertTrue(handler.supports(node("github.create_issue")));
         assertTrue(handler.supports(node("github.create_comment")));
         assertFalse(handler.supports(node("slack.post_message")));

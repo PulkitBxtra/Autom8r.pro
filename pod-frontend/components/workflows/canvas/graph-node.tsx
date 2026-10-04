@@ -94,6 +94,7 @@ export function GraphNode({ id, data, selected }: NodeProps<WorkflowNode>) {
               app={data.app}
               connectionId={data.connectionId}
               needsSetup={missingRequired(data.item?.fields, data.parameters).length > 0}
+              comingSoon={!!data.item?.comingSoon}
             />
           )}
         </div>
@@ -156,14 +157,18 @@ function AppLine({
   app,
   connectionId,
   needsSetup,
+  comingSoon,
 }: {
   app: App;
   connectionId: string | null | undefined;
   needsSetup: boolean;
+  // A step saved before its event was marked coming soon: nothing else about it matters.
+  comingSoon: boolean;
 }) {
   const { connector, chosen, missing, loading, error } = useStepConnection(app.id, connectionId);
   let problem: string | null = null;
-  if (connector && !loading && !error) {
+  if (comingSoon) problem = "Not available yet";
+  else if (connector && !loading && !error) {
     if (missing) problem = "Account removed";
     else if (!connectionId && app.connection === "required") problem = "Choose an account";
     else if (chosen?.status === "NEEDS_REAUTH") problem = "Account needs reconnecting";

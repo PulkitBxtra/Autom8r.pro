@@ -143,6 +143,7 @@
         {
           "id": "trg_gmail_new_email",
           "name": "New Email",
+          "comingSoon": true,
           "description": "A new email arrives in the inbox.",
           "fields": [
             { "key": "from", "label": "From", "type": "text", "placeholder": "someone@example.com",
@@ -152,12 +153,14 @@
         {
           "id": "trg_gmail_new_attachment",
           "name": "New Attachment",
+          "comingSoon": true,
           "description": "A new email with an attachment arrives.",
           "fields": []
         },
         {
           "id": "trg_gmail_new_label",
           "name": "New Labeled Email",
+          "comingSoon": true,
           "description": "An email gets a label.",
           "fields": [
             { "key": "label", "label": "Label", "type": "text", "required": true, "placeholder": "Invoices" }
@@ -168,6 +171,7 @@
         {
           "id": "act_gmail_send",
           "name": "Send Email",
+          "comingSoon": true,
           "description": "Sends an email from the connected account.",
           "handler": "gmail.send_email",
           "fields": [
@@ -183,6 +187,7 @@
         {
           "id": "act_gmail_draft",
           "name": "Create Draft",
+          "comingSoon": true,
           "description": "Saves an email as a draft without sending it.",
           "handler": "gmail.create_draft",
           "fields": [
@@ -277,6 +282,7 @@
         {
           "id": "trg_sheets_new_row",
           "name": "New Row",
+          "comingSoon": true,
           "description": "A row is added at the bottom of a sheet.",
           "fields": [
             { "key": "spreadsheetId", "label": "Spreadsheet ID", "type": "text", "required": true,
@@ -287,6 +293,7 @@
         {
           "id": "trg_sheets_updated_row",
           "name": "Updated Row",
+          "comingSoon": true,
           "description": "A row in a sheet changes.",
           "fields": [
             { "key": "spreadsheetId", "label": "Spreadsheet ID", "type": "text", "required": true,
@@ -299,6 +306,7 @@
         {
           "id": "act_sheets_add_row",
           "name": "Add Row",
+          "comingSoon": true,
           "description": "Adds a row at the bottom of a sheet.",
           "handler": "sheets.add_row",
           "fields": [
@@ -312,6 +320,7 @@
         {
           "id": "act_sheets_update_row",
           "name": "Update Row",
+          "comingSoon": true,
           "description": "Changes cells in one row.",
           "handler": "sheets.update_row",
           "fields": [
@@ -420,6 +429,7 @@
         {
           "id": "trg_notion_new_page",
           "name": "New Page",
+          "comingSoon": true,
           "description": "A page is added to a database.",
           "fields": [
             { "key": "databaseId", "label": "Database", "type": "text", "required": true, "optionsFrom": "notion.databases" }
@@ -428,6 +438,7 @@
         {
           "id": "trg_notion_updated_db",
           "name": "Updated Database Item",
+          "comingSoon": true,
           "description": "An item in a database changes.",
           "fields": [
             { "key": "databaseId", "label": "Database", "type": "text", "required": true, "optionsFrom": "notion.databases" }
@@ -480,12 +491,14 @@
         {
           "id": "trg_stripe_new_payment",
           "name": "New Payment",
+          "comingSoon": true,
           "description": "A payment succeeds.",
           "fields": []
         },
         {
           "id": "trg_stripe_new_customer",
           "name": "New Customer",
+          "comingSoon": true,
           "description": "A customer is created.",
           "fields": []
         }
@@ -494,6 +507,7 @@
         {
           "id": "act_stripe_create_invoice",
           "name": "Create Invoice",
+          "comingSoon": true,
           "description": "Creates an invoice for a customer with one line item.",
           "handler": "stripe.create_invoice",
           "fields": [
@@ -508,6 +522,7 @@
         {
           "id": "act_stripe_refund",
           "name": "Refund Payment",
+          "comingSoon": true,
           "description": "Refunds a payment in full or in part.",
           "handler": "stripe.refund_payment",
           "fields": [
@@ -533,6 +548,7 @@
         {
           "id": "trg_discord_new_message",
           "name": "New Message",
+          "comingSoon": true,
           "description": "A message is posted in a channel.",
           "fields": [
             { "key": "channelId", "label": "Channel ID", "type": "text", "required": true }
@@ -543,6 +559,7 @@
         {
           "id": "act_discord_post",
           "name": "Send Channel Message",
+          "comingSoon": true,
           "description": "Posts a message in a channel.",
           "handler": "discord.send_message",
           "fields": [
@@ -561,6 +578,7 @@
         {
           "id": "trg_trello_new_card",
           "name": "New Card",
+          "comingSoon": true,
           "description": "A card is added to a board.",
           "fields": [
             { "key": "boardId", "label": "Board ID", "type": "text", "required": true },
@@ -570,6 +588,7 @@
         {
           "id": "trg_trello_card_moved",
           "name": "Card Moved to List",
+          "comingSoon": true,
           "description": "A card is moved into a list.",
           "fields": [
             { "key": "boardId", "label": "Board ID", "type": "text", "required": true },
@@ -581,6 +600,7 @@
         {
           "id": "act_trello_create_card",
           "name": "Create Card",
+          "comingSoon": true,
           "description": "Adds a card to a list.",
           "handler": "trello.create_card",
           "fields": [
@@ -592,6 +612,7 @@
         {
           "id": "act_trello_move_card",
           "name": "Move Card",
+          "comingSoon": true,
           "description": "Moves a card to another list.",
           "handler": "trello.move_card",
           "fields": [

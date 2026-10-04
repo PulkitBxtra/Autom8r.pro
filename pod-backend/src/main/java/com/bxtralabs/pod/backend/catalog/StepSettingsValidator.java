@@ -111,11 +111,13 @@ public class StepSettingsValidator {
         CatalogApp.Action action = null;
         if (trigger) {
             CatalogApp.Trigger t = catalog.trigger(node.itemId()).orElseThrow(() -> unavailable(step, "trigger"));
+            if (t.comingSoon()) throw comingSoon(node.itemId(), t.name());
             itemName = t.name();
             handler = null;
             fields = t.fields();
         } else {
             CatalogApp.Action a = catalog.action(node.itemId()).orElseThrow(() -> unavailable(step, "action"));
+            if (a.comingSoon()) throw comingSoon(node.itemId(), a.name());
             action = a;
             itemName = a.name();
             handler = a.handler();
@@ -161,6 +163,11 @@ public class StepSettingsValidator {
 
     private static IllegalArgumentException unavailable(String step, String what) {
         return new IllegalArgumentException("Step " + step + " uses a " + what + " that isn't available any more; choose another one");
+    }
+
+    private IllegalArgumentException comingSoon(String itemId, String itemName) {
+        String app = catalog.appOf(itemId).map(CatalogApp::name).orElse("This app");
+        return new IllegalArgumentException(app + " \"" + itemName + "\" isn't available yet; choose another step or remove it");
     }
 
     private Map<String, Object> checkParameters(String step, List<CatalogField> fields, Map<String, Object> given) {
