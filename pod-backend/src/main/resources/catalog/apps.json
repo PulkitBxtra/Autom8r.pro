@@ -559,12 +559,22 @@
         {
           "id": "act_discord_post",
           "name": "Send Channel Message",
-          "comingSoon": true,
-          "description": "Posts a message in a channel.",
+          "description": "Posts a message in a channel as the bot. Users and roles it mentions are pinged; @everyone and @here are not.",
           "handler": "discord.send_message",
           "fields": [
-            { "key": "channelId", "label": "Channel ID", "type": "text", "required": true },
-            { "key": "content", "label": "Message", "type": "textarea", "required": true }
+            { "key": "channelId", "label": "Channel", "type": "text", "required": true, "placeholder": "Channel ID or link",
+              "optionsFrom": "discord.channels",
+              "help": "The bot must be in the server and allowed to send messages there." },
+            { "key": "content", "label": "Message", "type": "textarea", "required": true,
+              "help": "Up to 2000 characters. Markdown works." },
+            { "key": "replyTo", "label": "Reply to message", "type": "text", "placeholder": "Message ID",
+              "help": "Leave empty to post a new message." }
+          ],
+          "outputs": [
+            { "key": "id", "label": "Message ID", "type": "text" },
+            { "key": "channelId", "label": "Channel ID", "type": "text" },
+            { "key": "content", "label": "Message text", "type": "text" },
+            { "key": "timestamp", "label": "Posted at", "type": "datetime" }
           ]
         }
       ]

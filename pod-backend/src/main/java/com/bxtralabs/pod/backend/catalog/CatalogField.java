@@ -52,7 +52,8 @@ public record CatalogField(
             "github.repos", "app_github",
             "notion.databases", "app_notion",
             "notion.pages", "app_notion",
-            "notion.parents", "app_notion");
+            "notion.parents", "app_notion",
+            "discord.channels", "app_discord");
 
     public record Option(String value, String label) {
     }

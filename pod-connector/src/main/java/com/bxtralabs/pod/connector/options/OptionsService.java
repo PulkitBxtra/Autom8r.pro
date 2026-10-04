@@ -23,7 +23,7 @@ import java.util.function.LongSupplier;
 
 // Choices for a step setting, read from the step's account: the Slack channels a bot can see,
 // the GitHub repositories a token can reach, the Notion databases and pages shared with an
-// integration... The catalog names the list on the field (optionsFrom). Each option's value is
+// integration, the Discord channels a bot can post in... The catalog names the list on the field (optionsFrom). Each option's value is
 // what the step saves (an id, or owner/repo), its label what the user reads.
 // Lists are kept for a minute per account, so typing in the search box doesn't call the app on
 // every key; Notion is searched by the app itself, since a workspace can hold thousands of pages.
@@ -44,7 +44,8 @@ public class OptionsService {
             "github.repos", "app_github",
             "notion.databases", "app_notion",
             "notion.pages", "app_notion",
-            "notion.parents", "app_notion");
+            "notion.parents", "app_notion",
+            "discord.channels", "app_discord");
 
     static final int LIMIT = 100;
     static final long CACHE_MS = 60_000;
@@ -56,6 +57,7 @@ public class OptionsService {
     private final String githubApi;
     private final String slackApi;
     private final String notionApi;
+    private final String discordApi;
     private final LongSupplier clock;
     private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
     private final Map<String, Cached> cache = new ConcurrentHashMap<>();
@@ -67,18 +69,20 @@ public class OptionsService {
     public OptionsService(ConnectionRepository connections, TokenService tokens, JsonMapper jsonMapper,
                           @Value("${connectors.github.api-base:https://api.github.com}") String githubApi,
                           @Value("${connectors.slack.api-base:https://slack.com/api}") String slackApi,
-                          @Value("${connectors.notion.api-base:https://api.notion.com/v1}") String notionApi) {
-        this(connections, tokens, jsonMapper, githubApi, slackApi, notionApi, System::currentTimeMillis);
+                          @Value("${connectors.notion.api-base:https://api.notion.com/v1}") String notionApi,
+                          @Value("${connectors.discord.api-base:https://discord.com/api/v10}") String discordApi) {
+        this(connections, tokens, jsonMapper, githubApi, slackApi, notionApi, discordApi, System::currentTimeMillis);
     }
 
     OptionsService(ConnectionRepository connections, TokenService tokens, JsonMapper jsonMapper,
-                   String githubApi, String slackApi, String notionApi, LongSupplier clock) {
+                   String githubApi, String slackApi, String notionApi, String discordApi, LongSupplier clock) {
         this.connections = connections;
         this.tokens = tokens;
         this.jsonMapper = jsonMapper;
         this.githubApi = githubApi.replaceAll("/+$", "");
         this.slackApi = slackApi.replaceAll("/+$", "");
         this.notionApi = notionApi.replaceAll("/+$", "");
+        this.discordApi = discordApi.replaceAll("/+$", "");
         this.clock = clock;
     }
 
@@ -128,6 +132,7 @@ public class OptionsService {
             case "notion.databases" -> notion(account, query, "database");
             case "notion.pages" -> notion(account, query, "page");
             case "notion.parents" -> notion(account, query, null);
+            case "discord.channels" -> discordChannels(account);
             default -> throw new NotFoundException("Unknown list: " + source);
         };
     }
@@ -281,6 +286,63 @@ public class OptionsService {
             }
         }
         return text.toString().trim();
+    }
+
+    // ---- Discord ----
+
+    // Text and announcement channels in every server the bot is in, in the order Discord shows
+    // them: channels outside any category first, then each category in its place.
+    static final int MAX_DISCORD_SERVERS = 25;
+
+    private List<Option> discordChannels(Account a) {
+        List<?> guilds = discord(a, "/users/@me/guilds?limit=200").list();
+        if (guilds.isEmpty()) {
+            throw new OptionsException(422, "This bot isn't in any Discord server yet. Invite it to one (Discord Developer "
+                    + "Portal → your app → OAuth2 → URL Generator, scope bot), then try again.");
+        }
+        List<Option> out = new ArrayList<>();
+        for (Object g : guilds.stream().limit(MAX_DISCORD_SERVERS).toList()) {
+            if (!(g instanceof Map<?, ?> guild)) continue;
+            List<Map<?, ?>> channels = new ArrayList<>();
+            discord(a, "/guilds/" + str(guild.get("id")) + "/channels").list().forEach(c -> {
+                if (c instanceof Map<?, ?> m) channels.add(m);
+            });
+            Map<String, String> categories = new HashMap<>();
+            Map<String, Integer> categoryPositions = new HashMap<>();
+            channels.stream().filter(c -> number(c.get("type")).equals("4")).forEach(c -> {
+                categories.put(str(c.get("id")), str(c.get("name")));
+                categoryPositions.put(str(c.get("id")), position(c));
+            });
+            channels.stream()
+                    // 0 text, 5 announcement: the channels messages can be posted in.
+                    .filter(c -> Set.of("0", "5").contains(number(c.get("type"))))
+                    .sorted(Comparator.comparing((Map<?, ?> c) -> categoryPositions.getOrDefault(str(c.get("parent_id")), -1))
+                            .thenComparing(OptionsService::position))
+                    .forEach(c -> {
+                        String category = categories.get(str(c.get("parent_id")));
+                        out.add(new Option(str(c.get("id")), "#" + str(c.get("name")),
+                                str(guild.get("name")) + (category == null || category.isBlank() ? "" : " · " + category)));
+                    });
+        }
+        return out;
+    }
+
+    private static int position(Map<?, ?> channel) {
+        return channel.get("position") instanceof Number n ? n.intValue() : 0;
+    }
+
+    private Response discord(Account a, String path) {
+        Response r = send(HttpRequest.newBuilder(URI.create(discordApi + path))
+                .header("Authorization", "Bot " + a.token())
+                .header("User-Agent", "DiscordBot (https://autom8r.pro, 1.0)")
+                .GET(), "Discord");
+        if (r.status() == 401) {
+            rejected(a, "Discord rejected the bot token");
+        }
+        if (r.status() != 200) {
+            throw new OptionsException(502, "Discord couldn't list channels (HTTP " + r.status() + ")");
+        }
+        return r;
     }
 
     // ---- plumbing ----

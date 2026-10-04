@@ -55,7 +55,7 @@ class OptionsServiceTest {
         server.start();
         String base = "http://127.0.0.1:" + server.getAddress().getPort();
         service = new OptionsService(connections, tokens, JsonMapper.builder().build(),
-                base + "/gh", base + "/slack", base + "/notion", () -> now);
+                base + "/gh", base + "/slack", base + "/notion", base + "/discord", () -> now);
     }
 
     @AfterEach
@@ -167,6 +167,46 @@ class OptionsServiceTest {
 
         service.options("usr_1", "con_n", "notion.databases", "ro");
         assertTrue(calls.getLast().contains("\"value\":\"database\""), calls.getLast());
+    }
+
+    @Test
+    void discordChannelsAreTheTextChannelsOfEveryServerTheBotIsIn() {
+        account("con_d", "app_discord", "usr_1");
+        answers.put("/discord/users/@me/guilds", "[{\"id\":\"100\",\"name\":\"Acme\"}]");
+        answers.put("/discord/guilds/100/channels", "["
+                + "{\"id\":\"3\",\"name\":\"releases\",\"type\":5,\"position\":1,\"parent_id\":\"9\"},"
+                + "{\"id\":\"2\",\"name\":\"general\",\"type\":0,\"position\":0,\"parent_id\":\"9\"},"
+                + "{\"id\":\"4\",\"name\":\"Voice\",\"type\":2,\"position\":2},"
+                + "{\"id\":\"5\",\"name\":\"rules\",\"type\":0,\"position\":0,\"parent_id\":\"8\"},"
+                + "{\"id\":\"6\",\"name\":\"lobby\",\"type\":0,\"position\":3},"
+                + "{\"id\":\"8\",\"name\":\"Welcome\",\"type\":4,\"position\":0},"
+                + "{\"id\":\"9\",\"name\":\"Text Channels\",\"type\":4,\"position\":1}]");
+
+        OptionsService.Options got = service.options("usr_1", "con_d", "discord.channels", null);
+
+        // As Discord shows them: no category first, then categories by position, not by name.
+        assertEquals(List.of(new OptionsService.Option("6", "#lobby", "Acme"),
+                new OptionsService.Option("5", "#rules", "Acme · Welcome"),
+                new OptionsService.Option("2", "#general", "Acme · Text Channels"),
+                new OptionsService.Option("3", "#releases", "Acme · Text Channels")), got.options());
+        assertTrue(calls.getFirst().endsWith(" Bot tok-con_d"), calls.getFirst());
+    }
+
+    @Test
+    void aBotInNoServerIsToldToInviteIt() {
+        account("con_d", "app_discord", "usr_1");
+        answers.put("/discord/users/@me/guilds", "[]");
+        OptionsException e = assertThrows(OptionsException.class, () -> service.options("usr_1", "con_d", "discord.channels", ""));
+        assertEquals(422, e.status());
+        assertTrue(e.getMessage().startsWith("This bot isn't in any Discord server yet"), e.getMessage());
+    }
+
+    @Test
+    void aRejectedDiscordTokenMarksTheAccountForReconnecting() {
+        Connection c = account("con_d", "app_discord", "usr_1");
+        answers.put("/discord/users/@me/guilds", "401:{\"message\":\"401: Unauthorized\",\"code\":0}");
+        assertThrows(ConnectionNeedsReauthException.class, () -> service.options("usr_1", "con_d", "discord.channels", ""));
+        verify(tokens).markRejected(eq("con_d"), eq("usr_1"), eq("app_discord"), eq(TokenService.version(c)), contains("Discord"));
     }
 
     @Test

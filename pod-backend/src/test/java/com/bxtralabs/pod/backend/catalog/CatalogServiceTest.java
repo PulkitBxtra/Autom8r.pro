@@ -70,6 +70,8 @@ class CatalogServiceTest {
                 "a webhook starts with whatever its caller sends");
         assertEquals(List.of("number", "url", "id", "title", "state", "labels"), catalog.action("act_github_create_issue")
                 .orElseThrow().outputs().stream().map(CatalogOutput::key).toList(), "what GitHubHandler returns");
+        assertEquals(List.of("id", "channelId", "content", "timestamp"), catalog.action("act_discord_post")
+                .orElseThrow().outputs().stream().map(CatalogOutput::key).toList(), "what DiscordHandler returns");
     }
 
     // Account-backed choices only on text fields, and only lists of the step's own app's accounts.
