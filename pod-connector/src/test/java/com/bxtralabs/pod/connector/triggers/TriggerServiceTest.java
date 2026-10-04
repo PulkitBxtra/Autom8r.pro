@@ -32,6 +32,7 @@ class TriggerServiceTest {
     private final GitHubTriggers github = mock(GitHubTriggers.class);
     private final SlackTriggers slack = mock(SlackTriggers.class);
     private final StripeTriggers stripe = new StripeTriggers(JsonMapper.builder().build(), "http://unused");
+    private final TrelloTriggers trello = mock(TrelloTriggers.class);
     private final RunStarter runs = mock(RunStarter.class);
     private static final String SLACK_SERVER_SECRET = "server-signing-secret";
     private final Map<String, TriggerSubscription> db = new LinkedHashMap<>();
@@ -71,7 +72,7 @@ class TriggerServiceTest {
 
     private TriggerService service(String publicUrl) {
         return new TriggerService(subs, deliveries, connections, tokens, cipher, List.of(github, slack, stripe), github, slack,
-                stripe, runs, json,
+                stripe, trello, runs, json,
                 publicUrl, SLACK_SERVER_SECRET);
     }
 

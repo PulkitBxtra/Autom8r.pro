@@ -1,5 +1,6 @@
 package com.bxtralabs.pod.connector.triggers;
 
+import com.bxtralabs.pod.connector.common.NotFoundException;
 import com.bxtralabs.pod.connector.internal.InternalAuth;
 import com.bxtralabs.pod.connector.security.UserAuth;
 import jakarta.validation.Valid;
@@ -77,6 +78,28 @@ public class TriggerController {
         try {
             TriggerService.Outcome outcome = triggers.onStripeEvent(subscriptionId, signature, body);
             return ResponseEntity.ok(Map.of("result", outcome.name().toLowerCase()));
+        } catch (TriggerService.InvalidDeliveryException e) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    // Trello checks a webhook's address with a HEAD request before creating it.
+    @RequestMapping(value = "/hooks/trello/{subscriptionId}", method = RequestMethod.HEAD)
+    public ResponseEntity<Void> trelloCheck(@PathVariable String subscriptionId) {
+        return ResponseEntity.ok().build();
+    }
+
+    // Trello's webhook deliveries. Public: authenticated by the signature. A trigger that no longer
+    // exists answers 410 Gone, which makes Trello delete its webhook.
+    @PostMapping("/hooks/trello/{subscriptionId}")
+    public ResponseEntity<Map<String, String>> trello(@PathVariable String subscriptionId,
+                                                      @RequestHeader(value = "X-Trello-Webhook", required = false) String signature,
+                                                      @RequestBody byte[] body) {
+        try {
+            TriggerService.Outcome outcome = triggers.onTrelloDelivery(subscriptionId, signature, body);
+            return ResponseEntity.ok(Map.of("result", outcome.name().toLowerCase()));
+        } catch (NotFoundException e) {
+            return ResponseEntity.status(HttpStatus.GONE).body(Map.of("error", e.getMessage()));
         } catch (TriggerService.InvalidDeliveryException e) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", e.getMessage()));
         }

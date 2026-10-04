@@ -628,21 +628,45 @@
         {
           "id": "trg_trello_new_card",
           "name": "New Card",
-          "comingSoon": true,
-          "description": "A card is added to a board.",
+          "description": "A card is added to a board. Turning the workflow on adds a webhook to the board.",
           "fields": [
-            { "key": "boardId", "label": "Board ID", "type": "text", "required": true },
-            { "key": "listId", "label": "List ID", "type": "text", "help": "Only cards in this list. Leave empty for the whole board." }
+            { "key": "boardId", "label": "Board", "type": "text", "required": true, "placeholder": "Board ID",
+              "optionsFrom": "trello.boards" },
+            { "key": "listId", "label": "List", "type": "text", "placeholder": "List ID", "optionsFrom": "trello.lists",
+              "help": "Only cards added to this list. Leave empty for the whole board." }
+          ],
+          "outputs": [
+            { "key": "id", "label": "Card ID", "type": "text" },
+            { "key": "name", "label": "Card name", "type": "text" },
+            { "key": "url", "label": "Card link", "type": "text" },
+            { "key": "listId", "label": "List ID", "type": "text" },
+            { "key": "listName", "label": "List name", "type": "text" },
+            { "key": "boardId", "label": "Board ID", "type": "text" },
+            { "key": "boardName", "label": "Board name", "type": "text" },
+            { "key": "by", "label": "By (member name)", "type": "text" },
+            { "key": "at", "label": "When", "type": "datetime" }
           ]
         },
         {
           "id": "trg_trello_card_moved",
           "name": "Card Moved to List",
-          "comingSoon": true,
-          "description": "A card is moved into a list.",
+          "description": "A card is moved into a list. Turning the workflow on adds a webhook to the list's board.",
           "fields": [
-            { "key": "boardId", "label": "Board ID", "type": "text", "required": true },
-            { "key": "listId", "label": "List ID", "type": "text", "required": true }
+            { "key": "listId", "label": "List", "type": "text", "required": true, "placeholder": "List ID",
+              "optionsFrom": "trello.lists" }
+          ],
+          "outputs": [
+            { "key": "id", "label": "Card ID", "type": "text" },
+            { "key": "name", "label": "Card name", "type": "text" },
+            { "key": "url", "label": "Card link", "type": "text" },
+            { "key": "fromListId", "label": "Moved from (list ID)", "type": "text" },
+            { "key": "fromListName", "label": "Moved from (list name)", "type": "text" },
+            { "key": "listId", "label": "Moved to (list ID)", "type": "text" },
+            { "key": "listName", "label": "Moved to (list name)", "type": "text" },
+            { "key": "boardId", "label": "Board ID", "type": "text" },
+            { "key": "boardName", "label": "Board name", "type": "text" },
+            { "key": "by", "label": "By (member name)", "type": "text" },
+            { "key": "at", "label": "When", "type": "datetime" }
           ]
         }
       ],

@@ -48,6 +48,7 @@ public class OptionsService {
             "notion.parents", "app_notion",
             "discord.channels", "app_discord",
             "trello.lists", "app_trello",
+            "trello.boards", "app_trello",
             "stripe.customers", "app_stripe");
 
     static final int LIMIT = 100;
@@ -148,6 +149,7 @@ public class OptionsService {
             case "notion.parents" -> notion(account, query, null);
             case "discord.channels" -> discordChannels(account);
             case "trello.lists" -> trelloLists(account);
+            case "trello.boards" -> trelloBoards(account);
             case "stripe.customers" -> stripeCustomers(account);
             default -> throw new NotFoundException("Unknown list: " + source);
         };
@@ -364,12 +366,32 @@ public class OptionsService {
 
     // ---- Trello ----
 
-    // The open lists on the member's open boards, board by board as Trello orders them. With a key
-    // and token from the form, or an access token from signing in with Trello (no key).
+    // The open lists on the member's open boards, board by board as Trello orders them.
     private List<Option> trelloLists(Account a) {
+        List<Option> out = new ArrayList<>();
+        for (Object b : trelloBoardsWithLists(a, true)) {
+            if (!(b instanceof Map<?, ?> board) || !(board.get("lists") instanceof List<?> lists)) continue;
+            lists.stream().filter(l -> l instanceof Map<?, ?>).map(l -> (Map<?, ?>) l)
+                    .sorted(Comparator.comparingDouble(l -> l.get("pos") instanceof Number n ? n.doubleValue() : 0))
+                    .forEach(l -> out.add(new Option(str(l.get("id")), str(l.get("name")), str(board.get("name")))));
+        }
+        return out;
+    }
+
+    // The member's open boards.
+    private List<Option> trelloBoards(Account a) {
+        List<Option> out = new ArrayList<>();
+        for (Object b : trelloBoardsWithLists(a, false)) {
+            if (b instanceof Map<?, ?> board) out.add(new Option(str(board.get("id")), str(board.get("name")), null));
+        }
+        return out;
+    }
+
+    // With a key and token from the form, or an access token from signing in with Trello (no key).
+    private List<?> trelloBoardsWithLists(Account a, boolean lists) {
         boolean oauth = a.apiKey() == null;
         Response r = send(HttpRequest.newBuilder(URI.create((oauth ? trelloOauthApi : trelloApi)
-                        + "/members/me/boards?filter=open&fields=name&lists=open&list_fields=name,pos"))
+                        + "/members/me/boards?filter=open&fields=name" + (lists ? "&lists=open&list_fields=name,pos" : "")))
                 .header("Authorization", oauth ? "Bearer " + a.token()
                         : "OAuth oauth_consumer_key=\"" + a.apiKey() + "\", oauth_token=\"" + a.token() + "\"")
                 .header("Accept", "application/json")
@@ -380,14 +402,7 @@ public class OptionsService {
         if (r.status() != 200) {
             throw new OptionsException(502, "Trello couldn't list boards (HTTP " + r.status() + ")");
         }
-        List<Option> out = new ArrayList<>();
-        for (Object b : r.list()) {
-            if (!(b instanceof Map<?, ?> board) || !(board.get("lists") instanceof List<?> lists)) continue;
-            lists.stream().filter(l -> l instanceof Map<?, ?>).map(l -> (Map<?, ?>) l)
-                    .sorted(Comparator.comparingDouble(l -> l.get("pos") instanceof Number n ? n.doubleValue() : 0))
-                    .forEach(l -> out.add(new Option(str(l.get("id")), str(l.get("name")), str(board.get("name")))));
-        }
-        return out;
+        return r.list();
     }
 
     // ---- Stripe ----

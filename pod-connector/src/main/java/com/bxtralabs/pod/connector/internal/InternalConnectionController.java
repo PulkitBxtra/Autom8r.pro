@@ -57,8 +57,11 @@ public class InternalConnectionController {
                 .orElseThrow(() -> new NotFoundException("Connection not found: " + id));
 
         Map<String, String> credentials = new LinkedHashMap<>(tokens.getValidCredentials(c.getId()));
-        // A step only ever needs the access token; the refresh token stays in this pod.
+        // A step only ever needs the access token; the refresh token stays in this pod, and so do
+        // the secrets apps sign trigger events with (Slack's signing secret, Trello's API secret).
         credentials.remove(TokenService.REFRESH_TOKEN);
+        credentials.remove(com.bxtralabs.pod.connector.connections.ConnectorRegistry.SLACK_SIGNING_SECRET);
+        credentials.remove(com.bxtralabs.pod.connector.connections.ConnectorRegistry.TRELLO_API_SECRET);
         // Re-read: getValidCredentials may just have refreshed (and re-encrypted) them.
         String version = TokenService.version(connections.findById(id).orElseThrow());
         return new CredentialsResponse(c.getId(), c.getAppId(), c.getAuthType(), credentials, version);

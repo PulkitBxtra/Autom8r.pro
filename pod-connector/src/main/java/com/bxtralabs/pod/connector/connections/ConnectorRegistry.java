@@ -24,6 +24,7 @@ public class ConnectorRegistry {
     }
 
     public static final String SLACK_SIGNING_SECRET = "signingSecret";
+    public static final String TRELLO_API_SECRET = "apiSecret";
 
     private final Map<String, Connector> connectors = new LinkedHashMap<>();
 
@@ -124,7 +125,9 @@ public class ConnectorRegistry {
                 new TokenAuth(List.of(
                         new CredentialField("apiKey", "API key", false, true, "",
                                 "trello.com/power-ups/admin → your Power-Up → API key."),
-                        secret("token", "Token", "", "Generate one from the same page (the \"Token\" link next to the API key).")),
+                        secret("token", "Token", "", "Generate one from the same page (the \"Token\" link next to the API key)."),
+                        new CredentialField(TRELLO_API_SECRET, "API secret", true, false, "",
+                                "Only for Trello triggers: the Secret shown under the same API key. Trello signs trigger events with it.")),
                         "https://developer.atlassian.com/cloud/trello/guides/rest-api/api-introduction/",
                         creds -> {
                             // A key and token from the form; or, signing in with Trello, only the

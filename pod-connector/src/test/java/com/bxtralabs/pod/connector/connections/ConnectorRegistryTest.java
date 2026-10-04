@@ -142,8 +142,9 @@ class ConnectorRegistryTest {
             if (c.token() == null) continue;
             assertFalse(c.token().fields().isEmpty(), c.appId());
             for (CredentialField f : c.token().fields()) {
-                // The Slack signing secret is only needed for triggers.
-                assertEquals(!f.key().equals("signingSecret"), f.required(), c.appId() + "." + f.key());
+                // The Slack signing secret and the Trello API secret are only needed for triggers.
+                boolean triggersOnly = f.key().equals("signingSecret") || f.key().equals("apiSecret");
+                assertEquals(!triggersOnly, f.required(), c.appId() + "." + f.key());
                 assertNotNull(f.label());
             }
         }
@@ -151,6 +152,7 @@ class ConnectorRegistryTest {
         List<CredentialField> trello = registry.find("app_trello").orElseThrow().token().fields();
         assertFalse(trello.get(0).secret(), "Trello API key is public");
         assertTrue(trello.get(1).secret(), "Trello token is secret");
+        assertTrue(trello.get(2).secret() && !trello.get(2).required(), "Trello API secret is secret and optional");
     }
 
     // ---------- each provider: good token -> label, bad token -> clear rejection ----------

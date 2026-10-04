@@ -40,6 +40,7 @@ public class TriggerService {
     private final GitHubTriggers github;
     private final SlackTriggers slack;
     private final StripeTriggers stripe;
+    private final TrelloTriggers trello;
     private final RunStarter runs;
     private final JsonMapper jsonMapper;
     private final String publicUrl;
@@ -49,7 +50,7 @@ public class TriggerService {
     public TriggerService(TriggerSubscriptionRepository subscriptions, TriggerDeliveryRepository deliveries,
                           ConnectionRepository connections, TokenService tokens, CredentialCipher cipher,
                           List<AppTriggerRegistrar> registrars, GitHubTriggers github, SlackTriggers slack,
-                          StripeTriggers stripe, RunStarter runs,
+                          StripeTriggers stripe, TrelloTriggers trello, RunStarter runs,
                           JsonMapper jsonMapper, @Value("${triggers.public-url:}") String publicUrl,
                           @Value("${connectors.slack.signing-secret:}") String slackSigningSecret) {
         this.subscriptions = subscriptions;
@@ -61,6 +62,7 @@ public class TriggerService {
         this.github = github;
         this.slack = slack;
         this.stripe = stripe;
+        this.trello = trello;
         this.runs = runs;
         this.jsonMapper = jsonMapper;
         this.publicUrl = publicUrl == null ? "" : publicUrl.trim().replaceAll("/+$", "");
@@ -253,6 +255,54 @@ public class TriggerService {
                 match |= MessageDigest.isEqual(expected, sig.getBytes(StandardCharsets.UTF_8));
             }
             return match;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    // A Trello webhook delivery for a subscription. Rejects anything not signed with the secret of
+    // the app the trigger's connection comes from. An unknown subscription is NotFoundException,
+    // which the controller answers 410 Gone so Trello deletes the leftover webhook.
+    public Outcome onTrelloDelivery(String subscriptionId, String signature, byte[] body) {
+        TriggerSubscription s = subscriptions.findById(subscriptionId)
+                .filter(found -> "app_trello".equals(found.getAppId()))
+                .orElseThrow(() -> new NotFoundException("No such trigger"));
+        String secret = s.getSecret() == null ? null : cipher.decrypt(s.getSecret()).get("secret");
+        Object callbackUrl = s.getMeta() == null ? null : s.getMeta().get("callbackUrl");
+        if (callbackUrl == null || !validTrelloSignature(secret, body, String.valueOf(callbackUrl), signature)) {
+            throw new InvalidDeliveryException();
+        }
+        Map<?, ?> payload = jsonMapper.readValue(body, Map.class);
+        Optional<Map<String, Object>> triggerBody = trello.toTriggerBody(s, payload);
+        if (triggerBody.isEmpty()) {
+            return Outcome.IGNORED;
+        }
+        String key = "trello:" + ((Map<?, ?>) payload.get("action")).get("id") + ":" + s.getId();
+        if (deliveries.recordNew(key, s.getId(), System.currentTimeMillis()) == 0) {
+            return Outcome.DUPLICATE;
+        }
+        try {
+            runs.start(s.getWorkflowId(), triggerBody.get());
+        } catch (RuntimeException e) {
+            // Let Trello retry it: forget we saw it.
+            deliveries.deleteById(key);
+            throw e;
+        }
+        s.setLastEventAt(System.currentTimeMillis());
+        subscriptions.save(s);
+        return Outcome.STARTED;
+    }
+
+    // X-Trello-Webhook: base64(HMAC-SHA1(secret, raw body + the callback URL the webhook was made
+    // with)), compared in constant time.
+    static boolean validTrelloSignature(String secret, byte[] body, String callbackUrl, String header) {
+        if (secret == null || secret.isBlank() || header == null) return false;
+        try {
+            Mac mac = Mac.getInstance("HmacSHA1");
+            mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA1"));
+            mac.update(body);
+            String expected = Base64.getEncoder().encodeToString(mac.doFinal(callbackUrl.getBytes(StandardCharsets.UTF_8)));
+            return MessageDigest.isEqual(expected.getBytes(StandardCharsets.UTF_8), header.trim().getBytes(StandardCharsets.UTF_8));
         } catch (Exception e) {
             return false;
         }
