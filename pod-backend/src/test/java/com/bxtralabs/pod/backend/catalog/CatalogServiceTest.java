@@ -80,6 +80,10 @@ class CatalogServiceTest {
                 .orElseThrow().outputs().stream().map(CatalogOutput::key).toList(), "what StripeHandler returns");
         assertEquals(List.of("id", "status", "amount", "currency", "paymentIntentId"), catalog.action("act_stripe_refund")
                 .orElseThrow().outputs().stream().map(CatalogOutput::key).toList(), "what StripeHandler returns");
+        assertEquals(List.of("id", "threadId", "to", "subject"), catalog.action("act_gmail_send")
+                .orElseThrow().outputs().stream().map(CatalogOutput::key).toList(), "what GmailHandler returns");
+        assertEquals(List.of("rowNumber", "spreadsheetId", "sheet", "values", "range"), catalog.action("act_sheets_add_row")
+                .orElseThrow().outputs().stream().map(CatalogOutput::key).toList(), "what SheetsHandler returns");
     }
 
     // Account-backed choices only on text fields, and only lists of the step's own app's accounts.

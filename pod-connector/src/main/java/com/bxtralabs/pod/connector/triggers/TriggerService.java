@@ -107,7 +107,7 @@ public class TriggerService {
         s.setStatus(TriggerSubscription.STATUS_ERROR);
         s = subscriptions.save(s); // the id goes into the hook URL
         try {
-            if (publicUrl.isEmpty()) {
+            if (publicUrl.isEmpty() && !(registrar instanceof PollingTriggers)) {
                 throw new TriggerSetupException("App triggers need a public address for Autom8r (TRIGGERS_PUBLIC_URL isn't set)");
             }
             Connection c = connections.findById(connectionId == null ? "" : connectionId)

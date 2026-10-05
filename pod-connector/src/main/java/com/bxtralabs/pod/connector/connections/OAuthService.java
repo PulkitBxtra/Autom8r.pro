@@ -108,8 +108,9 @@ public class OAuthService {
         params.put("response_type", "code");
         params.put("client_id", clientId);
         params.put("redirect_uri", providers.callbackUrl(provider.id()));
-        if (provider.scopes() != null && !provider.scopes().isBlank()) {
-            params.put("scope", provider.scopes());
+        String scopes = connector.oauthScopes() != null ? connector.oauthScopes() : provider.scopes();
+        if (scopes != null && !scopes.isBlank()) {
+            params.put("scope", scopes);
         }
         params.put("state", state);
         if (provider.pkce()) {
@@ -228,6 +229,9 @@ public class OAuthService {
     // OAuth access token as that token (e.g. GitHub /user -> "@octocat").
     private String accountLabel(String appId, Provider provider, String accessToken) {
         Connector connector = registry.find(appId).orElse(null);
+        if (connector != null && connector.oauthAccount() != null) {
+            return connector.oauthAccount().verify(Map.of("token", accessToken));
+        }
         if (connector != null && connector.token() != null) {
             String key = connector.token().fields().stream()
                     .filter(CredentialField::secret).map(CredentialField::key).findFirst().orElse("token");

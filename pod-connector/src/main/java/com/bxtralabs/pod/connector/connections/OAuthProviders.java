@@ -74,6 +74,18 @@ public class OAuthProviders {
                 slackScopes, slackCallbackUrl, "https://auth.atlassian.com", "", "", publicUrl);
     }
 
+    // Without overriding Google's addresses (tests that don't sign in with Google).
+    public OAuthProviders(String githubOauthBase, String githubClientId, String githubClientSecret, String githubScopes,
+                          String googleClientId, String googleClientSecret, String notionOauthBase, String notionClientId,
+                          String notionClientSecret, String slackOauthBase, String slackClientId, String slackClientSecret,
+                          String slackScopes, String slackCallbackUrl, String trelloOauthBase, String trelloClientId,
+                          String trelloClientSecret, String publicUrl) {
+        this(githubOauthBase, githubClientId, githubClientSecret, githubScopes, googleClientId, googleClientSecret,
+                "https://accounts.google.com/o/oauth2/v2/auth", "https://oauth2.googleapis.com/token",
+                notionOauthBase, notionClientId, notionClientSecret, slackOauthBase, slackClientId, slackClientSecret,
+                slackScopes, slackCallbackUrl, trelloOauthBase, trelloClientId, trelloClientSecret, publicUrl);
+    }
+
     @Autowired
     public OAuthProviders(@Value("${connectors.github.oauth-base:https://github.com}") String githubOauthBase,
                           @Value("${connectors.github.oauth.client-id:}") String githubClientId,
@@ -81,6 +93,8 @@ public class OAuthProviders {
                           @Value("${connectors.github.oauth.scopes:read:user repo}") String githubScopes,
                           @Value("${connectors.google.oauth.client-id:}") String googleClientId,
                           @Value("${connectors.google.oauth.client-secret:}") String googleClientSecret,
+                          @Value("${connectors.google.authorize-url:https://accounts.google.com/o/oauth2/v2/auth}") String googleAuthorizeUrl,
+                          @Value("${connectors.google.token-url:https://oauth2.googleapis.com/token}") String googleTokenUrl,
                           @Value("${connectors.notion.oauth-base:https://api.notion.com/v1}") String notionOauthBase,
                           @Value("${connectors.notion.oauth.client-id:}") String notionClientId,
                           @Value("${connectors.notion.oauth.client-secret:}") String notionClientSecret,
@@ -101,11 +115,12 @@ public class OAuthProviders {
                 githubOauthBase + "/login/oauth/access_token",
                 githubScopes, githubClientId, githubClientSecret, Map.of(),
                 "https://github.com/settings/developers"));
-        // Declared so Gmail/Sheets light up once configured. access_type=offline + prompt=consent
-        // make Google return a refresh token.
+        // Google (Gmail, Sheets: each asks for its own scopes, see ConnectorRegistry). access_type=
+        // offline + prompt=consent make Google return a refresh token every time; access tokens
+        // last an hour and refreshing doesn't rotate the refresh token.
         register(new Provider("google", "Google",
-                "https://accounts.google.com/o/oauth2/v2/auth",
-                "https://oauth2.googleapis.com/token",
+                googleAuthorizeUrl,
+                googleTokenUrl,
                 "openid email https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/spreadsheets",
                 googleClientId, googleClientSecret,
                 Map.of("access_type", "offline", "prompt", "consent"),

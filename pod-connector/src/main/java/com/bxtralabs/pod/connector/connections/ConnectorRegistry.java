@@ -20,8 +20,21 @@ public class ConnectorRegistry {
     // Base URLs for each provider's API. trelloOauth: Trello's API for OAuth 2.0 access tokens,
     // which it serves from trello.com rather than api.trello.com.
     public record Endpoints(String github, String slack, String notion, String stripe, String discord, String trello,
-                            String trelloOauth) {
+                            String trelloOauth, String googleUserinfo) {
+
+        public Endpoints(String github, String slack, String notion, String stripe, String discord, String trello,
+                         String trelloOauth) {
+            this(github, slack, notion, stripe, discord, trello, trelloOauth, "https://openidconnect.googleapis.com/v1/userinfo");
+        }
     }
+
+    // Each Google app's sign-in asks only for what its steps and triggers use: Gmail to send and
+    // draft email (gmail.compose) and, for its triggers, to read mail (gmail.readonly, a "restricted"
+    // scope: fine while the Google app is in testing, a security review before it's public); Sheets
+    // to read and write spreadsheets. openid + email name the account.
+    public static final String GMAIL_SCOPES = "openid email https://www.googleapis.com/auth/gmail.compose "
+            + "https://www.googleapis.com/auth/gmail.readonly";
+    public static final String SHEETS_SCOPES = "openid email https://www.googleapis.com/auth/spreadsheets";
 
     public static final String SLACK_SIGNING_SECRET = "signingSecret";
     public static final String TRELLO_API_SECRET = "apiSecret";
@@ -36,8 +49,9 @@ public class ConnectorRegistry {
                              @Value("${connectors.stripe.api-base:https://api.stripe.com/v1}") String stripe,
                              @Value("${connectors.discord.api-base:https://discord.com/api/v10}") String discord,
                              @Value("${connectors.trello.api-base:https://api.trello.com/1}") String trello,
-                             @Value("${connectors.trello.oauth-api-base:https://trello.com/1}") String trelloOauth) {
-        this(defaults(http, new Endpoints(github, slack, notion, stripe, discord, trello, trelloOauth)));
+                             @Value("${connectors.trello.oauth-api-base:https://trello.com/1}") String trelloOauth,
+                             @Value("${connectors.google.userinfo-url:https://openidconnect.googleapis.com/v1/userinfo}") String googleUserinfo) {
+        this(defaults(http, new Endpoints(github, slack, notion, stripe, discord, trello, trelloOauth, googleUserinfo)));
     }
 
     // For tests: a registry with specific connectors.
@@ -143,9 +157,13 @@ public class ConnectorRegistry {
                         }),
                 "trello"));
 
-        // Google only offers OAuth for these scopes, so no token form (A8 adds "Connect with Google").
-        list.add(new Connector("app_gmail", "Gmail", "Send and watch email", null, "google"));
-        list.add(new Connector("app_sheets", "Google Sheets", "Read and write spreadsheet rows", null, "google"));
+        // Google only offers OAuth for these scopes, so no token form: "Connect with Google", named
+        // by the account's email.
+        Connector.TokenVerifier googleAccount = creds -> string(http.get("Google", api.googleUserinfo(),
+                Map.of("Authorization", "Bearer " + creds.get("token"))), "email");
+        list.add(new Connector("app_gmail", "Gmail", "Send email and drafts", null, "google", GMAIL_SCOPES, googleAccount));
+        list.add(new Connector("app_sheets", "Google Sheets", "Read and write spreadsheet rows", null, "google", SHEETS_SCOPES,
+                googleAccount));
 
         // Any API behind a header credential, for http_request steps. Nothing to check it against,
         // so the user names it.

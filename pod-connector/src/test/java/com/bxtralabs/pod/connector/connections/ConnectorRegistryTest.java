@@ -83,6 +83,11 @@ class ConnectorRegistryTest {
             else if ("good".equals(m.group(2))) respond(ex, 200, "{\"fullName\":\"Pulkit B\",\"username\":\"pb\"}");
             else respond(ex, 401, "invalid token");
         });
+        server.createContext("/google/userinfo", ex -> {
+            record("google", ex);
+            boolean ok = "Bearer ya29.good".equals(ex.getRequestHeaders().getFirst("Authorization"));
+            respond(ex, ok ? 200 : 401, ok ? "{\"sub\":\"1\",\"email\":\"ada@example.com\"}" : "{\"error\":\"invalid_token\"}");
+        });
         server.createContext("/trello-oauth/members/me", ex -> {
             record("trello-oauth", ex);
             boolean ok = "Bearer access-1".equals(ex.getRequestHeaders().getFirst("Authorization"));
@@ -98,7 +103,8 @@ class ConnectorRegistryTest {
         String base = "http://127.0.0.1:" + server.getAddress().getPort();
         ProviderHttp http = new ProviderHttp(JsonMapper.builder().build());
         registry = new ConnectorRegistry(ConnectorRegistry.defaults(http, new ConnectorRegistry.Endpoints(
-                base + "/github", base + "/slack", base + "/notion", base + "/stripe", base + "/discord", base + "/trello", base + "/trello-oauth")));
+                base + "/github", base + "/slack", base + "/notion", base + "/stripe", base + "/discord", base + "/trello", base + "/trello-oauth",
+                base + "/google/userinfo")));
     }
 
     @AfterEach
@@ -199,6 +205,19 @@ class ConnectorRegistryTest {
         String message = rejection("app_trello", Map.of("apiKey", "key1", "token", "leaky-secret"));
         assertTrue(message.contains("Trello rejected"));
         assertFalse(message.contains("leaky-secret"), "the token must not reach the error message");
+    }
+
+    // Gmail and Sheets share Google's sign-in, each asking only for its own access, named by email.
+    @Test
+    void googleAppsAskForTheirOwnScopesAndAreNamedByEmail() {
+        Connector gmail = registry.find("app_gmail").orElseThrow();
+        Connector sheets = registry.find("app_sheets").orElseThrow();
+        assertEquals("google", gmail.oauthProvider());
+        assertEquals("openid email https://www.googleapis.com/auth/gmail.compose https://www.googleapis.com/auth/gmail.readonly",
+                gmail.oauthScopes());
+        assertEquals("openid email https://www.googleapis.com/auth/spreadsheets", sheets.oauthScopes());
+        assertNull(gmail.token(), "Google has no token form");
+        assertEquals("ada@example.com", gmail.oauthAccount().verify(Map.of("token", "ya29.good")));
     }
 
     // Signing in with Trello names the account with only the access token, on Trello's OAuth address.

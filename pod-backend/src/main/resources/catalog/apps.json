@@ -143,27 +143,61 @@
         {
           "id": "trg_gmail_new_email",
           "name": "New Email",
-          "comingSoon": true,
-          "description": "A new email arrives in the inbox.",
-          "fields": [
-            { "key": "from", "label": "From", "type": "text", "placeholder": "someone@example.com",
-              "help": "Only emails from this address. Leave empty for all." }
+          "description": "An email arrives in the inbox. Checked about once a minute; needs a Gmail account allowed to read email.",
+          "fields": [],
+          "outputs": [
+            { "key": "id", "label": "Message ID", "type": "text" },
+            { "key": "threadId", "label": "Thread ID", "type": "text" },
+            { "key": "from", "label": "From", "type": "text" },
+            { "key": "to", "label": "To", "type": "text" },
+            { "key": "cc", "label": "Cc", "type": "text" },
+            { "key": "subject", "label": "Subject", "type": "text" },
+            { "key": "date", "label": "Date", "type": "text" },
+            { "key": "snippet", "label": "Snippet", "type": "text" },
+            { "key": "text", "label": "Text", "type": "text" },
+            { "key": "labels", "label": "Label IDs", "type": "list" },
+            { "key": "attachments", "label": "Attachments (name, type, size)", "type": "list" }
           ]
         },
         {
           "id": "trg_gmail_new_attachment",
           "name": "New Attachment",
-          "comingSoon": true,
-          "description": "A new email with an attachment arrives.",
-          "fields": []
+          "description": "An email with an attachment arrives in the inbox. Checked about once a minute; needs a Gmail account allowed to read email.",
+          "fields": [],
+          "outputs": [
+            { "key": "id", "label": "Message ID", "type": "text" },
+            { "key": "threadId", "label": "Thread ID", "type": "text" },
+            { "key": "from", "label": "From", "type": "text" },
+            { "key": "to", "label": "To", "type": "text" },
+            { "key": "cc", "label": "Cc", "type": "text" },
+            { "key": "subject", "label": "Subject", "type": "text" },
+            { "key": "date", "label": "Date", "type": "text" },
+            { "key": "snippet", "label": "Snippet", "type": "text" },
+            { "key": "text", "label": "Text", "type": "text" },
+            { "key": "labels", "label": "Label IDs", "type": "list" },
+            { "key": "attachments", "label": "Attachments (name, type, size)", "type": "list" }
+          ]
         },
         {
           "id": "trg_gmail_new_label",
           "name": "New Labeled Email",
-          "comingSoon": true,
-          "description": "An email gets a label.",
+          "description": "An email gets a label (including when it arrives with one). Checked about once a minute; needs a Gmail account allowed to read email.",
           "fields": [
-            { "key": "label", "label": "Label", "type": "text", "required": true, "placeholder": "Invoices" }
+            { "key": "label", "label": "Label", "type": "text", "required": true, "placeholder": "Invoices",
+              "help": "The label's name, as shown in Gmail." }
+          ],
+          "outputs": [
+            { "key": "id", "label": "Message ID", "type": "text" },
+            { "key": "threadId", "label": "Thread ID", "type": "text" },
+            { "key": "from", "label": "From", "type": "text" },
+            { "key": "to", "label": "To", "type": "text" },
+            { "key": "cc", "label": "Cc", "type": "text" },
+            { "key": "subject", "label": "Subject", "type": "text" },
+            { "key": "date", "label": "Date", "type": "text" },
+            { "key": "snippet", "label": "Snippet", "type": "text" },
+            { "key": "text", "label": "Text", "type": "text" },
+            { "key": "labels", "label": "Label IDs", "type": "list" },
+            { "key": "attachments", "label": "Attachments (name, type, size)", "type": "list" }
           ]
         }
       ],
@@ -171,8 +205,7 @@
         {
           "id": "act_gmail_send",
           "name": "Send Email",
-          "comingSoon": true,
-          "description": "Sends an email from the connected account.",
+          "description": "Sends an email from the connected Gmail account.",
           "handler": "gmail.send_email",
           "fields": [
             { "key": "to", "label": "To", "type": "text", "required": true, "placeholder": "someone@example.com",
@@ -182,18 +215,32 @@
             { "key": "body", "label": "Body", "type": "textarea", "required": true },
             { "key": "bodyType", "label": "Body format", "type": "select", "defaultValue": "text",
               "options": [ { "value": "text", "label": "Plain text" }, { "value": "html", "label": "HTML" } ] }
+          ],
+          "outputs": [
+            { "key": "id", "label": "Message ID", "type": "text" },
+            { "key": "threadId", "label": "Thread ID", "type": "text" },
+            { "key": "to", "label": "To", "type": "text" },
+            { "key": "subject", "label": "Subject", "type": "text" }
           ]
         },
         {
           "id": "act_gmail_draft",
           "name": "Create Draft",
-          "comingSoon": true,
-          "description": "Saves an email as a draft without sending it.",
+          "description": "Saves an email as a draft in the connected Gmail account, without sending it.",
           "handler": "gmail.create_draft",
           "fields": [
             { "key": "to", "label": "To", "type": "text", "placeholder": "someone@example.com" },
             { "key": "subject", "label": "Subject", "type": "text", "required": true },
-            { "key": "body", "label": "Body", "type": "textarea", "required": true }
+            { "key": "body", "label": "Body", "type": "textarea", "required": true },
+            { "key": "bodyType", "label": "Body format", "type": "select", "defaultValue": "text",
+              "options": [ { "value": "text", "label": "Plain text" }, { "value": "html", "label": "HTML" } ] }
+          ],
+          "outputs": [
+            { "key": "draftId", "label": "Draft ID", "type": "text" },
+            { "key": "id", "label": "Message ID", "type": "text" },
+            { "key": "threadId", "label": "Thread ID", "type": "text" },
+            { "key": "to", "label": "To", "type": "text" },
+            { "key": "subject", "label": "Subject", "type": "text" }
           ]
         }
       ]
@@ -282,23 +329,37 @@
         {
           "id": "trg_sheets_new_row",
           "name": "New Row",
-          "comingSoon": true,
-          "description": "A row is added at the bottom of a sheet.",
+          "description": "A row is added at the bottom of a sheet. Checked about once a minute.",
           "fields": [
-            { "key": "spreadsheetId", "label": "Spreadsheet ID", "type": "text", "required": true,
-              "help": "The long ID in the sheet's URL, between /d/ and /edit." },
-            { "key": "sheet", "label": "Sheet", "type": "text", "required": true, "defaultValue": "Sheet1" }
+            { "key": "spreadsheetId", "label": "Spreadsheet", "type": "text", "required": true,
+              "placeholder": "https://docs.google.com/spreadsheets/d/…",
+              "help": "Paste the spreadsheet's link (or its ID). Row 1 must hold the column headers." },
+            { "key": "sheet", "label": "Sheet", "type": "text", "required": true, "defaultValue": "Sheet1",
+              "help": "The tab's name, at the bottom of the spreadsheet." }
+          ],
+          "outputs": [
+            { "key": "rowNumber", "label": "Row number", "type": "number" },
+            { "key": "values", "label": "Values (by column header)", "type": "object" },
+            { "key": "spreadsheetId", "label": "Spreadsheet ID", "type": "text" },
+            { "key": "sheet", "label": "Sheet", "type": "text" }
           ]
         },
         {
           "id": "trg_sheets_updated_row",
           "name": "Updated Row",
-          "comingSoon": true,
-          "description": "A row in a sheet changes.",
+          "description": "A row's values change. Checked about once a minute; sheets of up to 2,000 rows.",
           "fields": [
-            { "key": "spreadsheetId", "label": "Spreadsheet ID", "type": "text", "required": true,
-              "help": "The long ID in the sheet's URL, between /d/ and /edit." },
-            { "key": "sheet", "label": "Sheet", "type": "text", "required": true, "defaultValue": "Sheet1" }
+            { "key": "spreadsheetId", "label": "Spreadsheet", "type": "text", "required": true,
+              "placeholder": "https://docs.google.com/spreadsheets/d/…",
+              "help": "Paste the spreadsheet's link (or its ID). Row 1 must hold the column headers." },
+            { "key": "sheet", "label": "Sheet", "type": "text", "required": true, "defaultValue": "Sheet1",
+              "help": "The tab's name, at the bottom of the spreadsheet." }
+          ],
+          "outputs": [
+            { "key": "rowNumber", "label": "Row number", "type": "number" },
+            { "key": "values", "label": "Values (by column header)", "type": "object" },
+            { "key": "spreadsheetId", "label": "Spreadsheet ID", "type": "text" },
+            { "key": "sheet", "label": "Sheet", "type": "text" }
           ]
         }
       ],
@@ -306,30 +367,47 @@
         {
           "id": "act_sheets_add_row",
           "name": "Add Row",
-          "comingSoon": true,
-          "description": "Adds a row at the bottom of a sheet.",
+          "description": "Adds a row at the bottom of a sheet, filling columns by their header in row 1.",
           "handler": "sheets.add_row",
           "fields": [
-            { "key": "spreadsheetId", "label": "Spreadsheet ID", "type": "text", "required": true,
-              "help": "The long ID in the sheet's URL, between /d/ and /edit." },
-            { "key": "sheet", "label": "Sheet", "type": "text", "required": true, "defaultValue": "Sheet1" },
+            { "key": "spreadsheetId", "label": "Spreadsheet", "type": "text", "required": true,
+              "placeholder": "https://docs.google.com/spreadsheets/d/…",
+              "help": "Paste the spreadsheet's link (or its ID). It must be shared with the connected account." },
+            { "key": "sheet", "label": "Sheet", "type": "text", "required": true, "defaultValue": "Sheet1",
+              "help": "The tab's name, at the bottom of the spreadsheet." },
             { "key": "values", "label": "Values", "type": "keyvalue", "required": true,
-              "help": "Column header → value for the new row." }
+              "help": "Column header -> value for the new row. Values are entered as if typed: numbers, dates and formulas work." }
+          ],
+          "outputs": [
+            { "key": "rowNumber", "label": "Row number", "type": "number" },
+            { "key": "spreadsheetId", "label": "Spreadsheet ID", "type": "text" },
+            { "key": "sheet", "label": "Sheet", "type": "text" },
+            { "key": "values", "label": "Values written (by column)", "type": "object" },
+            { "key": "range", "label": "Range written (e.g. Sheet1!A5:C5)", "type": "text" }
           ]
         },
         {
           "id": "act_sheets_update_row",
           "name": "Update Row",
-          "comingSoon": true,
-          "description": "Changes cells in one row.",
+          "description": "Changes cells in one row, by column header. Columns not listed are left as they are.",
           "handler": "sheets.update_row",
           "fields": [
-            { "key": "spreadsheetId", "label": "Spreadsheet ID", "type": "text", "required": true,
-              "help": "The long ID in the sheet's URL, between /d/ and /edit." },
-            { "key": "sheet", "label": "Sheet", "type": "text", "required": true, "defaultValue": "Sheet1" },
-            { "key": "rowNumber", "label": "Row number", "type": "number", "required": true },
+            { "key": "spreadsheetId", "label": "Spreadsheet", "type": "text", "required": true,
+              "placeholder": "https://docs.google.com/spreadsheets/d/…",
+              "help": "Paste the spreadsheet's link (or its ID). It must be shared with the connected account." },
+            { "key": "sheet", "label": "Sheet", "type": "text", "required": true, "defaultValue": "Sheet1",
+              "help": "The tab's name, at the bottom of the spreadsheet." },
+            { "key": "rowNumber", "label": "Row number", "type": "number", "required": true,
+              "help": "2 or more: row 1 holds the column headers. Often an earlier step's Row number." },
             { "key": "values", "label": "Values", "type": "keyvalue", "required": true,
-              "help": "Column header → new value. Columns not listed are left as they are." }
+              "help": "Column header -> new value." }
+          ],
+          "outputs": [
+            { "key": "rowNumber", "label": "Row number", "type": "number" },
+            { "key": "spreadsheetId", "label": "Spreadsheet ID", "type": "text" },
+            { "key": "sheet", "label": "Sheet", "type": "text" },
+            { "key": "values", "label": "Values written (by column)", "type": "object" },
+            { "key": "updatedCells", "label": "Cells updated", "type": "number" }
           ]
         }
       ]

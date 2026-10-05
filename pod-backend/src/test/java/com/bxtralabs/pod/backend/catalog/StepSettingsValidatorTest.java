@@ -94,15 +94,20 @@ class StepSettingsValidatorTest {
 
     @Test
     void comingSoonStepsCantBeSaved() {
-        GraphNode gmail = new GraphNode("a", "action", "Gmail", "act_gmail_send", null, null,
-                Map.of("to", "a@example.com", "subject", "s", "body", "b"), null, null, "con_test", null);
-        Exception e = assertThrows(IllegalArgumentException.class, () -> real.normalize(
-                new WorkflowGraph(List.of(WEBHOOK, gmail), List.of(new GraphEdge("t", "a", null, null)))));
-        assertEquals("Gmail \"Send Email\" isn't available yet; choose another step or remove it", e.getMessage());
-        GraphNode gmailTrigger = new GraphNode("t", "trigger", "Gmail", "trg_gmail_new_email", null, null, Map.of(),
-                null, null, "con_test", null);
-        e = assertThrows(IllegalArgumentException.class, () -> real.normalize(new WorkflowGraph(List.of(gmailTrigger), List.of())));
-        assertTrue(e.getMessage().startsWith("Gmail \"New Email\" isn't available yet"), e.getMessage());
+        // Every action is built now; an app's action marked coming soon is refused the same way.
+        CatalogApp later = new CatalogApp("app_later", "Later", null, null, List.of(), List.of(
+                new CatalogApp.Action("act_later", "Do Later", null, "later.do", List.of(), null, null, true)));
+        CatalogApp webhook = new CatalogApp("app_webhook", "Webhook", null, null,
+                List.of(new CatalogApp.Trigger("trg_webhook_catch", "Catch Hook", null, List.of(), null, false)), List.of());
+        StepSettingsValidator withLater = new StepSettingsValidator(new CatalogService(List.of(webhook, later)), JsonMapper.builder().build());
+        GraphNode action = new GraphNode("a", "action", "Later", "act_later", null, null, Map.of(), null, null, null, null);
+        Exception e = assertThrows(IllegalArgumentException.class, () -> withLater.normalize(
+                new WorkflowGraph(List.of(WEBHOOK, action), List.of(new GraphEdge("t", "a", null, null)))));
+        assertEquals("Later \"Do Later\" isn't available yet; choose another step or remove it", e.getMessage());
+        GraphNode discordTrigger = new GraphNode("t", "trigger", "Discord", "trg_discord_new_message", null, null,
+                Map.of("channelId", "1"), null, null, "con_test", null);
+        e = assertThrows(IllegalArgumentException.class, () -> real.normalize(new WorkflowGraph(List.of(discordTrigger), List.of())));
+        assertTrue(e.getMessage().startsWith("Discord \"New Message\" isn't available yet"), e.getMessage());
     }
 
     @Test
