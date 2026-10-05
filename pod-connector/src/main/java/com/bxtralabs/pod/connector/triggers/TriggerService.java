@@ -41,6 +41,8 @@ public class TriggerService {
     private final SlackTriggers slack;
     private final StripeTriggers stripe;
     private final TrelloTriggers trello;
+    private final NotionTriggers notion;
+    private final String notionWebhookSecret;
     private final RunStarter runs;
     private final JsonMapper jsonMapper;
     private final String publicUrl;
@@ -50,9 +52,10 @@ public class TriggerService {
     public TriggerService(TriggerSubscriptionRepository subscriptions, TriggerDeliveryRepository deliveries,
                           ConnectionRepository connections, TokenService tokens, CredentialCipher cipher,
                           List<AppTriggerRegistrar> registrars, GitHubTriggers github, SlackTriggers slack,
-                          StripeTriggers stripe, TrelloTriggers trello, RunStarter runs,
+                          StripeTriggers stripe, TrelloTriggers trello, NotionTriggers notion, RunStarter runs,
                           JsonMapper jsonMapper, @Value("${triggers.public-url:}") String publicUrl,
-                          @Value("${connectors.slack.signing-secret:}") String slackSigningSecret) {
+                          @Value("${connectors.slack.signing-secret:}") String slackSigningSecret,
+                          @Value("${connectors.notion.webhook-secret:}") String notionWebhookSecret) {
         this.subscriptions = subscriptions;
         this.deliveries = deliveries;
         this.connections = connections;
@@ -63,6 +66,8 @@ public class TriggerService {
         this.slack = slack;
         this.stripe = stripe;
         this.trello = trello;
+        this.notion = notion;
+        this.notionWebhookSecret = notionWebhookSecret == null ? "" : notionWebhookSecret.trim();
         this.runs = runs;
         this.jsonMapper = jsonMapper;
         this.publicUrl = publicUrl == null ? "" : publicUrl.trim().replaceAll("/+$", "");
@@ -303,6 +308,78 @@ public class TriggerService {
             mac.update(body);
             String expected = Base64.getEncoder().encodeToString(mac.doFinal(callbackUrl.getBytes(StandardCharsets.UTF_8)));
             return MessageDigest.isEqual(expected.getBytes(StandardCharsets.UTF_8), header.trim().getBytes(StandardCharsets.UTF_8));
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    // A Notion webhook event for this server's Notion integration (/hooks/notion). The very first
+    // request, when its subscription is created, carries only a verification_token: that's written
+    // to the log, for whoever runs the server to paste into Notion and set as NOTION_WEBHOOK_SECRET
+    // (it's what every later event is signed with). Events must be signed with that secret.
+    // Each workflow whose account's bot can see the page (accessible_by) gets a run, once per event.
+    public Outcome onNotionEvent(String signature, byte[] body) {
+        Map<?, ?> event = jsonMapper.readValue(body, Map.class);
+        if (event.get("verification_token") != null && event.get("type") == null) {
+            System.out.println("Notion sent its webhook verification token. Paste it into the Notion integration's Webhooks tab"
+                    + " (Verify) and set NOTION_WEBHOOK_SECRET to it: " + event.get("verification_token"));
+            return Outcome.IGNORED;
+        }
+        if (!validNotionSignature(notionWebhookSecret, body, signature)) {
+            throw new InvalidDeliveryException();
+        }
+        Set<String> bots = new LinkedHashSet<>();
+        if (event.get("accessible_by") instanceof List<?> list) {
+            for (Object a : list) {
+                if (a instanceof Map<?, ?> m && "bot".equals(m.get("type")) && m.get("id") != null) bots.add(String.valueOf(m.get("id")));
+            }
+        }
+        Outcome outcome = Outcome.IGNORED;
+        RuntimeException failure = null;
+        for (String bot : bots) {
+            if (NotionTriggers.onlyBy(bot, event)) continue; // this account's own step wrote it
+            for (TriggerSubscription s : subscriptions.findByAppIdAndRoutingKeyAndStatus("app_notion", bot, TriggerSubscription.STATUS_ACTIVE)) {
+                Optional<Map<String, Object>> triggerBody;
+                try {
+                    triggerBody = notion.toTriggerBody(s, event, tokens.getValidCredentials(s.getConnectionId()));
+                } catch (TriggerSetupException | RuntimeException e) {
+                    // The account can't read it right now (reconnect needed, Notion down): skip this workflow.
+                    System.out.println("Couldn't read the Notion page for " + s.getId() + ": " + e.getMessage());
+                    continue;
+                }
+                if (triggerBody.isEmpty()) continue;
+                String key = "notion:" + event.get("id") + ":" + s.getId();
+                if (deliveries.recordNew(key, s.getId(), System.currentTimeMillis()) == 0) {
+                    if (outcome == Outcome.IGNORED) outcome = Outcome.DUPLICATE;
+                    continue;
+                }
+                try {
+                    runs.start(s.getWorkflowId(), triggerBody.get());
+                } catch (RuntimeException e) {
+                    // Let Notion retry it: forget we saw it. The others that started stay recorded.
+                    deliveries.deleteById(key);
+                    failure = e;
+                    continue;
+                }
+                s.setLastEventAt(System.currentTimeMillis());
+                subscriptions.save(s);
+                outcome = Outcome.STARTED;
+            }
+        }
+        if (failure != null) {
+            throw failure;
+        }
+        return outcome;
+    }
+
+    // X-Notion-Signature: "sha256=" + hex(HMAC-SHA256(verification token, raw body)), constant time.
+    static boolean validNotionSignature(String secret, byte[] body, String header) {
+        if (secret == null || secret.isBlank() || header == null || !header.startsWith("sha256=")) return false;
+        try {
+            Mac mac = Mac.getInstance("HmacSHA256");
+            mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+            String expected = "sha256=" + HexFormat.of().formatHex(mac.doFinal(body));
+            return MessageDigest.isEqual(expected.getBytes(StandardCharsets.UTF_8), header.getBytes(StandardCharsets.UTF_8));
         } catch (Exception e) {
             return false;
         }

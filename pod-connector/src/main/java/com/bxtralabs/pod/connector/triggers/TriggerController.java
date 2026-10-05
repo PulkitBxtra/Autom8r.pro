@@ -83,6 +83,19 @@ public class TriggerController {
         }
     }
 
+    // Notion's webhook events for this server's Notion integration. Public: authenticated by the
+    // signature (except the one-time verification request, which only gets logged).
+    @PostMapping("/hooks/notion")
+    public ResponseEntity<Map<String, String>> notion(@RequestHeader(value = "X-Notion-Signature", required = false) String signature,
+                                                      @RequestBody byte[] body) {
+        try {
+            TriggerService.Outcome outcome = triggers.onNotionEvent(signature, body);
+            return ResponseEntity.ok(Map.of("result", outcome.name().toLowerCase()));
+        } catch (TriggerService.InvalidDeliveryException e) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", e.getMessage()));
+        }
+    }
+
     // Trello checks a webhook's address with a HEAD request before creating it.
     @RequestMapping(value = "/hooks/trello/{subscriptionId}", method = RequestMethod.HEAD)
     public ResponseEntity<Void> trelloCheck(@PathVariable String subscriptionId) {

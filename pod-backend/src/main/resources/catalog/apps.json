@@ -429,19 +429,39 @@
         {
           "id": "trg_notion_new_page",
           "name": "New Page",
-          "comingSoon": true,
           "description": "A page is added to a database.",
           "fields": [
-            { "key": "databaseId", "label": "Database", "type": "text", "required": true, "optionsFrom": "notion.databases" }
+            { "key": "databaseId", "label": "Database", "type": "text", "required": true, "optionsFrom": "notion.databases",
+              "help": "Needs an account connected with Connect with Notion, and the database shared with it." }
+          ],
+          "outputs": [
+            { "key": "id", "label": "Page ID", "type": "text" },
+            { "key": "title", "label": "Title", "type": "text" },
+            { "key": "url", "label": "Page link", "type": "text" },
+            { "key": "properties", "label": "Properties (by name)", "type": "object" },
+            { "key": "databaseId", "label": "Database ID", "type": "text" },
+            { "key": "createdTime", "label": "Created at", "type": "datetime" },
+            { "key": "lastEditedTime", "label": "Last edited at", "type": "datetime" }
           ]
         },
         {
           "id": "trg_notion_updated_db",
           "name": "Updated Database Item",
-          "comingSoon": true,
-          "description": "An item in a database changes.",
+          "description": "An item in a database changes. Notion groups quick edits, so this can arrive up to about a minute later.",
           "fields": [
-            { "key": "databaseId", "label": "Database", "type": "text", "required": true, "optionsFrom": "notion.databases" }
+            { "key": "databaseId", "label": "Database", "type": "text", "required": true, "optionsFrom": "notion.databases",
+              "help": "Needs an account connected with Connect with Notion, and the database shared with it." }
+          ],
+          "outputs": [
+            { "key": "id", "label": "Page ID", "type": "text" },
+            { "key": "title", "label": "Title", "type": "text" },
+            { "key": "url", "label": "Page link", "type": "text" },
+            { "key": "properties", "label": "Properties (by name)", "type": "object" },
+            { "key": "databaseId", "label": "Database ID", "type": "text" },
+            { "key": "createdTime", "label": "Created at", "type": "datetime" },
+            { "key": "lastEditedTime", "label": "Last edited at", "type": "datetime" },
+            { "key": "event", "label": "What changed (page.properties_updated or page.content_updated)", "type": "text" },
+            { "key": "updatedProperties", "label": "Changed property IDs", "type": "list" }
           ]
         }
       ],

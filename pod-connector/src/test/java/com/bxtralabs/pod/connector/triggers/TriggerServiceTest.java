@@ -33,6 +33,7 @@ class TriggerServiceTest {
     private final SlackTriggers slack = mock(SlackTriggers.class);
     private final StripeTriggers stripe = new StripeTriggers(JsonMapper.builder().build(), "http://unused");
     private final TrelloTriggers trello = mock(TrelloTriggers.class);
+    private final NotionTriggers notion = mock(NotionTriggers.class);
     private final RunStarter runs = mock(RunStarter.class);
     private static final String SLACK_SERVER_SECRET = "server-signing-secret";
     private final Map<String, TriggerSubscription> db = new LinkedHashMap<>();
@@ -72,8 +73,8 @@ class TriggerServiceTest {
 
     private TriggerService service(String publicUrl) {
         return new TriggerService(subs, deliveries, connections, tokens, cipher, List.of(github, slack, stripe), github, slack,
-                stripe, trello, runs, json,
-                publicUrl, SLACK_SERVER_SECRET);
+                stripe, trello, notion, runs, json,
+                publicUrl, SLACK_SERVER_SECRET, "notion-secret");
     }
 
     private TriggerService.Status subscribe(String repo) {
@@ -190,6 +191,72 @@ class TriggerServiceTest {
         mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
         mac.update(("v0:" + ts + ":").getBytes(StandardCharsets.UTF_8));
         return "v0=" + HexFormat.of().formatHex(mac.doFinal(body));
+    }
+
+    // ---- Notion ----
+
+    private TriggerSubscription notionSubscription(String id, String bot) {
+        TriggerSubscription s = new TriggerSubscription();
+        s.setId(id);
+        s.setWorkflowId("wfl_" + id);
+        s.setUserId("usr_1");
+        s.setAppId("app_notion");
+        s.setTriggerId(NotionTriggers.NEW_PAGE);
+        s.setConnectionId("con_" + id);
+        s.setStatus(TriggerSubscription.STATUS_ACTIVE);
+        s.setRoutingKey(bot);
+        db.put(id, s);
+        return s;
+    }
+
+    private static String notionSign(String secret, byte[] body) throws Exception {
+        javax.crypto.Mac mac = javax.crypto.Mac.getInstance("HmacSHA256");
+        mac.init(new javax.crypto.spec.SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+        return "sha256=" + java.util.HexFormat.of().formatHex(mac.doFinal(body));
+    }
+
+    private static byte[] notionEvent(String id, String authorId, String authorType, String... bots) {
+        StringBuilder accessible = new StringBuilder();
+        for (String b : bots) accessible.append(accessible.isEmpty() ? "" : ",").append("{\"id\":\"").append(b).append("\",\"type\":\"bot\"}");
+        return ("{\"id\":\"" + id + "\",\"type\":\"page.created\",\"entity\":{\"id\":\"p1\",\"type\":\"page\"},"
+                + "\"authors\":[{\"id\":\"" + authorId + "\",\"type\":\"" + authorType + "\"}],\"accessible_by\":[" + accessible + "]}")
+                .getBytes(StandardCharsets.UTF_8);
+    }
+
+    @Test
+    void aSignedNotionEventStartsARunForEachWorkflowWhoseAccountCanSeeThePage() throws Exception {
+        TriggerSubscription mine = notionSubscription("tsub_n1", "bot-a");
+        notionSubscription("tsub_n2", "bot-other");
+        when(subs.findByAppIdAndRoutingKeyAndStatus(eq("app_notion"), any(), eq(TriggerSubscription.STATUS_ACTIVE)))
+                .thenAnswer(inv -> db.values().stream().filter(s -> inv.getArgument(1).equals(s.getRoutingKey())).toList());
+        when(tokens.getValidCredentials("con_tsub_n1")).thenReturn(Map.of("access_token", "ntn_1"));
+        when(notion.toTriggerBody(same(mine), any(), eq(Map.of("access_token", "ntn_1")))).thenReturn(Optional.of(Map.of("title", "Plan")));
+        byte[] body = notionEvent("ev1", "user-1", "person", "bot-a");
+
+        assertEquals(TriggerService.Outcome.STARTED, service.onNotionEvent(notionSign("notion-secret", body), body));
+        verify(runs).start("wfl_tsub_n1", Map.of("title", "Plan"));
+        assertEquals(TriggerService.Outcome.DUPLICATE, service.onNotionEvent(notionSign("notion-secret", body), body));
+        verify(runs, times(1)).start(any(), any());
+    }
+
+    @Test
+    void notionEventsMadeByTheAccountsOwnBotStartNothing() throws Exception {
+        notionSubscription("tsub_n1", "bot-a");
+        when(subs.findByAppIdAndRoutingKeyAndStatus(eq("app_notion"), eq("bot-a"), any())).thenReturn(List.of(db.get("tsub_n1")));
+        byte[] body = notionEvent("ev2", "bot-a", "bot", "bot-a");
+        assertEquals(TriggerService.Outcome.IGNORED, service.onNotionEvent(notionSign("notion-secret", body), body));
+        verifyNoInteractions(runs);
+        verifyNoInteractions(notion);
+    }
+
+    @Test
+    void notionsVerificationRequestIsOnlyLoggedAndUnsignedEventsAreRefused() throws Exception {
+        byte[] verification = "{\"verification_token\":\"secret_abc\"}".getBytes(StandardCharsets.UTF_8);
+        assertEquals(TriggerService.Outcome.IGNORED, service.onNotionEvent(null, verification));
+        byte[] body = notionEvent("ev3", "user-1", "person", "bot-a");
+        assertThrows(TriggerService.InvalidDeliveryException.class, () -> service.onNotionEvent(null, body));
+        assertThrows(TriggerService.InvalidDeliveryException.class, () -> service.onNotionEvent(notionSign("guess", body), body));
+        verifyNoInteractions(runs);
     }
 
     // ---- Stripe ----
