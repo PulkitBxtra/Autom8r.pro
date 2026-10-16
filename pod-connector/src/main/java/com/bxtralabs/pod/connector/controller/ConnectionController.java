@@ -4,6 +4,7 @@ import com.bxtralabs.pod.connector.connections.ConnectionService;
 import com.bxtralabs.pod.connector.connections.ConnectionService.ConnectionView;
 import com.bxtralabs.pod.connector.connections.ConnectionService.ConnectorView;
 import com.bxtralabs.pod.connector.security.UserAuth;
+import com.bxtralabs.pod.connector.triggers.TriggerService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import org.springframework.http.HttpStatus;
@@ -17,10 +18,12 @@ public class ConnectionController {
 
     private final UserAuth userAuth;
     private final ConnectionService connectionService;
+    private final TriggerService triggers;
 
-    public ConnectionController(UserAuth userAuth, ConnectionService connectionService) {
+    public ConnectionController(UserAuth userAuth, ConnectionService connectionService, TriggerService triggers) {
         this.userAuth = userAuth;
         this.connectionService = connectionService;
+        this.triggers = triggers;
     }
 
     // Apps that can be connected, and how (token fields and/or OAuth).
@@ -56,7 +59,10 @@ public class ConnectionController {
     @DeleteMapping("/connection/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void delete(@RequestHeader("Authorization") String authorizationHeader, @PathVariable String id) {
-        connectionService.delete(userAuth.requireUserId(authorizationHeader), id);
+        String userId = userAuth.requireUserId(authorizationHeader);
+        connectionService.owned(userId, id); // someone else's: not found, and their triggers untouched
+        triggers.connectionRemoved(id);
+        connectionService.delete(userId, id);
     }
 
     public record CreateTokenConnectionRequest(

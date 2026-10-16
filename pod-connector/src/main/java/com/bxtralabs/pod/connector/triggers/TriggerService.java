@@ -143,7 +143,26 @@ public class TriggerService {
                 .orElse(null);
     }
 
+    // Before a connection is deleted: its triggers stop listening (their hooks removed from the app
+    // while its credentials still work) and say why, until the workflow is saved with another account.
+    public void connectionRemoved(String connectionId) {
+        for (TriggerSubscription s : subscriptions.findByConnectionIdAndStatus(connectionId, TriggerSubscription.STATUS_ACTIVE)) {
+            unregister(s);
+            s.setExternalId(null);
+            s.setStatus(TriggerSubscription.STATUS_ERROR);
+            s.setLastError(REMOVED_ACCOUNT);
+            subscriptions.save(s);
+        }
+    }
+
+    static final String REMOVED_ACCOUNT = "The trigger's account was removed; choose another and save the workflow";
+
     private void remove(TriggerSubscription s) {
+        unregister(s);
+        subscriptions.delete(s);
+    }
+
+    private void unregister(TriggerSubscription s) {
         registrars.stream().filter(r -> r.supports(s.getAppId())).findFirst().ifPresent(r -> {
             try {
                 if (s.getExternalId() != null && s.getConnectionId() != null) {
@@ -153,7 +172,6 @@ public class TriggerService {
                 System.out.println("Couldn't unregister " + s + ": " + e.getMessage());
             }
         });
-        subscriptions.delete(s);
     }
 
     private static Status status(TriggerSubscription s) {
@@ -183,14 +201,14 @@ public class TriggerService {
         if (triggerBody.isEmpty()) {
             return Outcome.IGNORED;
         }
-        if (deliveryId != null && deliveries.recordNew("github:" + deliveryId, s.getId(), System.currentTimeMillis()) == 0) {
+        if (deliveryId != null && deliveries.recordNew("github:" + deliveryId + ":" + s.getId(), s.getId(), System.currentTimeMillis()) == 0) {
             return Outcome.DUPLICATE;
         }
         try {
             runs.start(s.getWorkflowId(), triggerBody.get());
         } catch (RuntimeException e) {
             // Let GitHub redeliver it: forget we saw it.
-            if (deliveryId != null) deliveries.deleteById("github:" + deliveryId);
+            if (deliveryId != null) deliveries.deleteById("github:" + deliveryId + ":" + s.getId());
             throw e;
         }
         s.setLastEventAt(System.currentTimeMillis());

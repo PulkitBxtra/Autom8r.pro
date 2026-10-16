@@ -1,5 +1,6 @@
 package com.bxtralabs.pod.connector.triggers;
 
+import com.bxtralabs.pod.connector.common.NotFoundException;
 import com.bxtralabs.pod.connector.connections.CredentialCipher;
 import com.bxtralabs.pod.connector.connections.TokenService;
 import com.bxtralabs.pod.connector.model.Connection;
@@ -11,6 +12,10 @@ import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.transaction.TransactionStatus;
+import org.springframework.transaction.UnexpectedRollbackException;
+import org.springframework.transaction.support.TransactionCallback;
+import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.io.IOException;
@@ -255,5 +260,70 @@ class GoogleTriggersTest {
         assertEquals(4, s.getMeta().get("rowCount"));
         assertNull(s.getLastError());
         assertNotNull(s.getLastEventAt());
+    }
+
+    @Test
+    void aSubscriptionWhoseAccountIsGoneStopsWithoutUndoingTheOthersPolls() throws Exception {
+        TriggerSubscriptionRepository subs = mock(TriggerSubscriptionRepository.class);
+        TokenService tokens = mock(TokenService.class);
+        CredentialCipher cipher = mock(CredentialCipher.class);
+        PollingTriggers poller = mock(PollingTriggers.class);
+        when(cipher.isConfigured()).thenReturn(true);
+        when(poller.supports(any())).thenReturn(true);
+        when(poller.poll(any(), any())).thenReturn(new PollingTriggers.Poll(List.of(), Map.of()));
+
+        TriggerSubscription orphan = subscription("app_gmail", GmailTriggers.NEW_EMAIL, Map.of(), null);
+        orphan.setId("tsub_orphan");
+        orphan.setConnectionId("con_gone");
+        orphan.setStatus(TriggerSubscription.STATUS_ACTIVE);
+        TriggerSubscription fine = subscription("app_gmail", GmailTriggers.NEW_EMAIL, Map.of(), null);
+        fine.setId("tsub_fine");
+        fine.setStatus(TriggerSubscription.STATUS_ACTIVE);
+        Map<String, TriggerSubscription> db = new LinkedHashMap<>(Map.of("tsub_orphan", orphan, "tsub_fine", fine));
+        Map<String, TriggerSubscription> saved = new HashMap<>();
+        when(tokens.getValidCredentials("con_1")).thenReturn(CREDS);
+        // Each claim takes the first not yet polled; a transaction whose credentials lookup failed
+        // can't commit (as with Spring's rollback-only), so nothing it saved is kept.
+        when(subs.lockDueForPoll(any(), anyLong(), eq(1))).thenAnswer(inv -> db.values().stream()
+                .filter(x -> !saved.containsKey(x.getId())).limit(1).map(x -> {
+                    TriggerSubscription copy = subscription(x.getAppId(), x.getTriggerId(), Map.of(), null);
+                    copy.setId(x.getId());
+                    copy.setConnectionId(x.getConnectionId());
+                    copy.setStatus(x.getStatus());
+                    return copy;
+                }).toList());
+        when(subs.findById(any())).thenAnswer(inv -> Optional.ofNullable(db.get((String) inv.getArgument(0))));
+        List<TriggerSubscription> pending = new ArrayList<>();
+        when(subs.save(any())).thenAnswer(inv -> { pending.add(inv.getArgument(0)); return inv.getArgument(0); });
+        TransactionTemplate transactions = mock(TransactionTemplate.class);
+        boolean[] rollbackOnly = new boolean[1];
+        when(tokens.getValidCredentials("con_gone")).thenAnswer(inv -> {
+            rollbackOnly[0] = true;
+            throw new NotFoundException("Connection not found: con_gone");
+        });
+        when(transactions.execute(any())).thenAnswer(inv -> {
+            pending.clear();
+            rollbackOnly[0] = false;
+            Object result = ((TransactionCallback<?>) inv.getArgument(0)).doInTransaction(null);
+            if (rollbackOnly[0]) throw new UnexpectedRollbackException("rolled back");
+            pending.forEach(x -> saved.put(x.getId(), x));
+            return result;
+        });
+        doAnswer(inv -> {
+            pending.clear();
+            ((java.util.function.Consumer<TransactionStatus>) inv.getArgument(0, java.util.function.Consumer.class)).accept(null);
+            pending.forEach(x -> saved.put(x.getId(), x));
+            return null;
+        }).when(transactions).executeWithoutResult(any());
+
+        new TriggerPoller(subs, mock(TriggerDeliveryRepository.class), tokens, cipher, List.of(poller),
+                mock(RunStarter.class), transactions, 60_000).pollDue();
+
+        assertEquals("ERROR", saved.get("tsub_orphan").getStatus());
+        assertTrue(saved.get("tsub_orphan").getLastError().contains("account was removed"));
+        assertNotNull(saved.get("tsub_orphan").getMeta().get("polledAt"));
+        assertEquals("ACTIVE", saved.get("tsub_fine").getStatus());
+        assertNull(saved.get("tsub_fine").getLastError());
+        verify(poller, times(1)).poll(any(), any());
     }
 }

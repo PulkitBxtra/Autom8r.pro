@@ -158,6 +158,39 @@ class TriggerServiceTest {
     }
 
     @Test
+    void twoWorkflowsOnOneRepositoryEachStartFromTheSameEvent() throws Exception {
+        // GitHub sends one event to every hook with the same delivery id.
+        subscribe("octo/app");
+        service.subscribe("wfl_2", "usr_1", "app_github", GitHubTriggers.NEW_ISSUE, "con_1", Map.of("repository", "octo/app"));
+        byte[] body = "{\"action\":\"opened\",\"issue\":{\"number\":5}}".getBytes(StandardCharsets.UTF_8);
+        when(github.toTriggerBody(eq(GitHubTriggers.NEW_ISSUE), eq("issues"), any())).thenReturn(Optional.of(Map.of("number", 5)));
+
+        for (TriggerSubscription s : List.copyOf(db.values())) {
+            String secret = cipher.decrypt(s.getSecret()).get("secret");
+            assertEquals(TriggerService.Outcome.STARTED, service.onGitHubDelivery(s.getId(), sign(secret, body), "issues", "d-1", body));
+        }
+        verify(runs).start("wfl_1", Map.of("number", 5));
+        verify(runs).start("wfl_2", Map.of("number", 5));
+    }
+
+    @Test
+    void deletingTheAccountStopsItsTriggersAndSaysWhy() {
+        subscribe("octo/app");
+        TriggerSubscription s = db.values().iterator().next();
+        when(subs.findByConnectionIdAndStatus("con_1", TriggerSubscription.STATUS_ACTIVE)).thenReturn(List.of(s));
+
+        service.connectionRemoved("con_1");
+        verify(github).unregister(same(s), eq(Map.of("access_token", "gho_1")));
+        TriggerService.Status status = service.statusFor("wfl_1", "usr_1");
+        assertEquals("ERROR", status.status());
+        assertTrue(status.error().contains("account was removed"));
+        assertNull(s.getExternalId());
+
+        subscribe("octo/app"); // saved again with an account: listening again
+        assertEquals("ACTIVE", service.statusFor("wfl_1", "usr_1").status());
+    }
+
+    @Test
     void unsignedOrWronglySignedDeliveriesAreRejected() throws Exception {
         subscribe("octo/app");
         String id = db.keySet().iterator().next();
